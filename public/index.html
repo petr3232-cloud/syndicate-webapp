@@ -1,1 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Syndicate WebApp</title>
+</head>
+<body>
+
+<h1>SYNDICATE</h1>
+<p>Приложение загружено</p>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+
+  fetch("/auth", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      initData: tg.initData
+    })
+  })
+  .then(r => r.text())
+  .then(console.log)
+  .catch(console.error);
+</script>
+
+</body>
+</html>
 
