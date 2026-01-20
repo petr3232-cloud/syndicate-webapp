@@ -79,3 +79,7 @@ app.post("/auth", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
+
+console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "OK" : "NO");
+console.log("SUPABASE_SECRET_KEY:", process.env.SUPABASE_SECRET_KEY ? "OK" : "NO");
+
