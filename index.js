@@ -1,28 +1,24 @@
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
-const { createClient } = require("@supabase/supabase-js");
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+console.log("🔥 SERVER BOOT");
 
 console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "OK" : "NO");
 console.log("SUPABASE_SECRET_KEY:", process.env.SUPABASE_SECRET_KEY ? "OK" : "NO");
 console.log("BOT_TOKEN:", process.env.BOT_TOKEN ? "OK" : "NO");
 
-
-
-const app = express();
-const PORT = process.env.PORT;
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-);
-
 app.use(express.json());
 app.use(express.static("public"));
 
-function checkTelegramAuth(initData) {
-  if (!process.env.BOT_TOKEN) return false;
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
 
+function checkTelegramAuth(initData) {
   const urlParams = new URLSearchParams(initData);
   const hash = urlParams.get("hash");
   urlParams.delete("hash");
@@ -49,41 +45,20 @@ app.get("/", (req, res) => {
   res.sendFile(path.resolve("public/index.html"));
 });
 
-app.post("/auth", async (req, res) => {
+app.post("/auth", (req, res) => {
   const { initData } = req.body;
 
-  if (!initData) return res.send("NO INIT DATA");
-  if (!checkTelegramAuth(initData))
-    return res.send("HASH INVALID");
+  if (!initData) {
+    return res.status(400).send("NO INIT DATA");
+  }
 
-  const params = new URLSearchParams(initData);
-  const user = JSON.parse(params.get("user"));
-
-  const telegram_id = user.id.toString();
-  const username = user.username || "no_username";
-
-  const { data, error } = await supabase
-    .from("users")
-    .select("*")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  if (!data) {
-    await supabase.from("users").insert([
-      {
-        telegram_id,
-        username,
-        points: 0,
-        level: "Новичок"
-      }
-    ]);
+  if (!checkTelegramAuth(initData)) {
+    return res.status(403).send("FAKE USER");
   }
 
   res.send("USER VERIFIED");
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port", PORT);
+app.listen(PORT, () => {
+  console.log("🚀 Server running on port", PORT);
 });
-
-
