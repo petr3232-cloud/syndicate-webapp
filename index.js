@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT || 3000; // fallback на локалку
+const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 app.use(express.static("public"));
@@ -15,7 +15,6 @@ function checkTelegramAuth(initData) {
   }
 
   const urlParams = new URLSearchParams(initData);
-
   const hash = urlParams.get("hash");
   urlParams.delete("hash");
 
@@ -57,6 +56,7 @@ app.post("/auth", (req, res) => {
   res.send("USER VERIFIED");
 });
 
-app.listen(PORT, () => {
+/* ВАЖНОЕ ИСПРАВЛЕНИЕ */
+app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
