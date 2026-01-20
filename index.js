@@ -1,18 +1,21 @@
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
-const PORT = process.env.PORT; // Railway сам задаёт порт
+const PORT = process.env.PORT;
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 app.use(express.json());
 app.use(express.static("public"));
 
 function checkTelegramAuth(initData) {
-  if (!process.env.BOT_TOKEN) {
-    console.log("❌ BOT_TOKEN не найден");
-    return false;
-  }
+  if (!process.env.BOT_TOKEN) return false;
 
   const urlParams = new URLSearchParams(initData);
   const hash = urlParams.get("hash");
@@ -40,17 +43,34 @@ app.get("/", (req, res) => {
   res.sendFile(path.resolve("public/index.html"));
 });
 
-app.post("/auth", (req, res) => {
-  console.log("AUTH BODY:", req.body);
-
+app.post("/auth", async (req, res) => {
   const { initData } = req.body;
 
-  if (!initData) {
-    return res.send("NO INIT DATA FROM CLIENT");
-  }
-
-  if (!checkTelegramAuth(initData)) {
+  if (!initData) return res.send("NO INIT DATA");
+  if (!checkTelegramAuth(initData))
     return res.send("HASH INVALID");
+
+  const params = new URLSearchParams(initData);
+  const user = JSON.parse(params.get("user"));
+
+  const telegram_id = user.id.toString();
+  const username = user.username || "no_username";
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  if (!data) {
+    await supabase.from("users").insert([
+      {
+        telegram_id,
+        username,
+        points: 0,
+        level: "Новичок"
+      }
+    ]);
   }
 
   res.send("USER VERIFIED");
