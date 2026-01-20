@@ -3,16 +3,13 @@ const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT; // ВАЖНО: БЕЗ || 8080
 
 app.use(express.json());
 app.use(express.static("public"));
 
 function checkTelegramAuth(initData) {
-  if (!process.env.BOT_TOKEN) {
-    console.log("❌ BOT_TOKEN не найден");
-    return false;
-  }
+  if (!process.env.BOT_TOKEN) return false;
 
   const urlParams = new URLSearchParams(initData);
   const hash = urlParams.get("hash");
@@ -41,22 +38,16 @@ app.get("/", (req, res) => {
 });
 
 app.post("/auth", (req, res) => {
-  console.log("AUTH REQUEST:", req.body);
-
   const { initData } = req.body;
 
-  if (!initData) {
-    return res.status(400).send("NO INIT DATA");
-  }
-
-  if (!checkTelegramAuth(initData)) {
+  if (!initData) return res.status(400).send("NO INIT DATA");
+  if (!checkTelegramAuth(initData))
     return res.status(403).send("FAKE USER");
-  }
 
   res.send("USER VERIFIED");
 });
 
-/* ВАЖНОЕ ИСПРАВЛЕНИЕ */
+/* КЛЮЧЕВО */
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
