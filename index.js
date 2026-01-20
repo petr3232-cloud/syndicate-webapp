@@ -10,7 +10,6 @@ app.use(express.static("public"));
 
 function checkTelegramAuth(initData) {
   const urlParams = new URLSearchParams(initData);
-
   const hash = urlParams.get("hash");
   urlParams.delete("hash");
 
@@ -32,13 +31,13 @@ function checkTelegramAuth(initData) {
   return hmac === hash;
 }
 
-// Главная страница
 app.get("/", (req, res) => {
   res.sendFile(path.resolve("public/index.html"));
 });
 
-// Проверка пользователя
 app.post("/auth", (req, res) => {
+  console.log("AUTH REQUEST:", req.body);
+
   const { initData } = req.body;
 
   if (!initData || !checkTelegramAuth(initData)) {
