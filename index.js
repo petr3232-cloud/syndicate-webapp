@@ -3,6 +3,12 @@ const crypto = require("crypto");
 const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
 
+console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "OK" : "NO");
+console.log("SUPABASE_SECRET_KEY:", process.env.SUPABASE_SECRET_KEY ? "OK" : "NO");
+console.log("BOT_TOKEN:", process.env.BOT_TOKEN ? "OK" : "NO");
+
+
+
 const app = express();
 const PORT = process.env.PORT;
 
@@ -80,6 +86,4 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("Server running on port", PORT);
 });
 
-console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "OK" : "NO");
-console.log("SUPABASE_SECRET_KEY:", process.env.SUPABASE_SECRET_KEY ? "OK" : "NO");
 
