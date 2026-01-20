@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Syndicate WebApp</title>
+  <title>SYNDICATE</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
@@ -12,6 +13,8 @@
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
+
+  console.log("INIT DATA:", tg.initData);
 
   fetch("/auth", {
     method: "POST",
@@ -26,12 +29,10 @@
   .then(result => {
     document.getElementById("status").innerText = result;
   })
-  .catch(() => {
-    document.getElementById("status").innerText = "Ошибка соединения";
+  .catch(e => {
+    document.getElementById("status").innerText = "FETCH ERROR";
   });
 </script>
 
 </body>
-
 </html>
-
