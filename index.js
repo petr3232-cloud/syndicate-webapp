@@ -5,6 +5,7 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+app.use(express.json());
 app.use(express.static("public"));
 
 function checkTelegramAuth(initData) {
@@ -31,14 +32,20 @@ function checkTelegramAuth(initData) {
   return hmac === hash;
 }
 
+// Главная страница
 app.get("/", (req, res) => {
-  const initData = req.query.initData;
+  res.sendFile(path.resolve("public/index.html"));
+});
+
+// Проверка пользователя
+app.post("/auth", (req, res) => {
+  const { initData } = req.body;
 
   if (!initData || !checkTelegramAuth(initData)) {
-    return res.send("⛔ Доступ только через Telegram");
+    return res.status(403).send("FAKE USER");
   }
 
-  res.sendFile(path.resolve("public/index.html"));
+  res.send("USER VERIFIED");
 });
 
 app.listen(PORT, () => {
