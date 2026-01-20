@@ -14,7 +14,7 @@ const PORT = process.env.PORT;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.SUPABASE_SECRET_KEY
 );
 
 app.use(express.json());
