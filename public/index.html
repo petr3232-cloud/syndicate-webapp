@@ -7,7 +7,7 @@
 <body>
 
 <h1>SYNDICATE</h1>
-<p>Приложение загружено</p>
+<p id="status">Проверка...</p>
 
 <script>
   const tg = window.Telegram.WebApp;
@@ -23,10 +23,15 @@
     })
   })
   .then(r => r.text())
-  .then(console.log)
-  .catch(console.error);
+  .then(result => {
+    document.getElementById("status").innerText = result;
+  })
+  .catch(() => {
+    document.getElementById("status").innerText = "Ошибка соединения";
+  });
 </script>
 
 </body>
+
 </html>
 
