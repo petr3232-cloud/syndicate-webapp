@@ -111,6 +111,41 @@ app.post("/auth", async (req, res) => {
   res.send("USER VERIFIED");
 });
 
+/* ===== ME ===== */
+app.post("/me", async (req, res) => {
+  const { initData } = req.body;
+
+  if (!initData) {
+    return res.status(400).json({ error: "NO INIT DATA" });
+  }
+
+  if (!checkTelegramAuth(initData)) {
+    return res.status(403).json({ error: "FAKE USER" });
+  }
+
+  const params = new URLSearchParams(initData);
+  const user = JSON.parse(params.get("user"));
+  const telegramId = String(user.id);
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_id", telegramId)
+    .single();
+
+  if (error) {
+    console.log("ME DB ERROR:", error);
+    return res.status(500).json({ error: "DB ERROR" });
+  }
+
+  res.json({
+    ok: true,
+    user: data
+  });
+});
+
+
+
 /* ===== START ===== */
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
