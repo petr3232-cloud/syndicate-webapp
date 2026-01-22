@@ -4,34 +4,78 @@
   <meta charset="UTF-8">
   <title>SYNDICATE</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      background: #0f0f0f;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .menu {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .btn {
+      padding: 14px;
+      background: #1e1e1e;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      border: 1px solid #333;
+    }
+    .btn:hover {
+      background: #2a2a2a;
+    }
+    #status {
+      margin-top: 16px;
+      font-size: 14px;
+      opacity: 0.7;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
-<p id="status">Проверка...</p>
+
+<div class="menu">
+  <div class="btn" onclick="openSection('path')">🧭 Мой путь</div>
+  <div class="btn" onclick="openSection('tasks')">📋 Мои задания</div>
+  <div class="btn" onclick="openSection('inventory')">🎒 Инвентарь</div>
+  <div class="btn" onclick="openSection('doppel')">🧬 Доппельгангер</div>
+  <div class="btn" onclick="openSection('shop')">🛒 Магазин</div>
+  <div class="btn" onclick="openSection('settings')">⚙️ Настройки</div>
+</div>
+
+<p id="status">Проверка пользователя...</p>
 
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
 
-  console.log("INIT DATA:", tg.initData);
-
+  // Авторизация
   fetch("/auth", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      initData: tg.initData
-    })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData: tg.initData })
   })
   .then(r => r.text())
   .then(result => {
     document.getElementById("status").innerText = result;
   })
-  .catch(e => {
-    document.getElementById("status").innerText = "FETCH ERROR";
+  .catch(() => {
+    document.getElementById("status").innerText = "Ошибка соединения";
   });
+
+  function openSection(name) {
+    alert("Раздел: " + name + "\n(логика будет позже)");
+  }
 </script>
 
 </body>
