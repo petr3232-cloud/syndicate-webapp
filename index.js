@@ -73,22 +73,39 @@ app.post("/auth", async (req, res) => {
 
   console.log("✅ USER:", user);
 
-  /* ===== SAVE TO DB (ТОЛЬКО СУЩЕСТВУЮЩИЕ КОЛОНКИ) ===== */
-  const { error } = await supabase
+  const telegramId = String(user.id);
+
+  /* 1️⃣ ПРОВЕРЯЕМ — ЕСТЬ ЛИ ПОЛЬЗОВАТЕЛЬ */
+  const { data: existingUser, error: selectError } = await supabase
     .from("users")
-    .upsert(
-      {
-        telegram_id: String(user.id), // text
+    .select("id")
+    .eq("telegram_id", telegramId)
+    .single();
+
+  if (selectError && selectError.code !== "PGRST116") {
+    console.log("DB SELECT ERROR:", selectError);
+    return res.status(500).send("DB ERROR");
+  }
+
+  /* 2️⃣ ЕСЛИ НЕТ — СОЗДАЁМ */
+  if (!existingUser) {
+    const { error: insertError } = await supabase
+      .from("users")
+      .insert({
+        telegram_id: telegramId,
         username: user.username ?? null,
         points: 0,
         level: "Новичок"
-      },
-      { onConflict: "telegram_id" }
-    );
+      });
 
-  if (error) {
-    console.log("DB ERROR:", error);
-    return res.status(500).send("DB ERROR");
+    if (insertError) {
+      console.log("DB INSERT ERROR:", insertError);
+      return res.status(500).send("DB ERROR");
+    }
+
+    console.log("🆕 USER INSERTED");
+  } else {
+    console.log("👤 USER ALREADY EXISTS");
   }
 
   res.send("USER VERIFIED");
