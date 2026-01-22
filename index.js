@@ -27,7 +27,7 @@ app.get("/health", (req, res) => {
   res.send("OK");
 });
 
-/* ===== TELEGRAM CHECK ===== */
+/* ===== TELEGRAM AUTH CHECK ===== */
 function checkTelegramAuth(initData) {
   const urlParams = new URLSearchParams(initData);
   const hash = urlParams.get("hash");
@@ -56,10 +56,8 @@ app.get("/", (req, res) => {
   res.sendFile(path.resolve("public/index.html"));
 });
 
-/* AUTH */
+/* ===== AUTH ===== */
 app.post("/auth", async (req, res) => {
-  console.log("AUTH BODY:", req.body);
-
   const { initData } = req.body;
 
   if (!initData) {
@@ -75,14 +73,18 @@ app.post("/auth", async (req, res) => {
 
   console.log("✅ USER:", user);
 
-  /* SAVE TO DB */
+  /* ===== SAVE TO DB (ТОЛЬКО СУЩЕСТВУЮЩИЕ КОЛОНКИ) ===== */
   const { error } = await supabase
     .from("users")
-    .upsert({
-      telegram_id: user.id,
-      username: user.username,
-      first_name: user.first_name
-    });
+    .upsert(
+      {
+        telegram_id: String(user.id), // text
+        username: user.username ?? null,
+        points: 0,
+        level: "Новичок"
+      },
+      { onConflict: "telegram_id" }
+    );
 
   if (error) {
     console.log("DB ERROR:", error);
