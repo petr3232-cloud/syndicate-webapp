@@ -59,15 +59,23 @@
   const tg = window.Telegram.WebApp;
   tg.ready();
 
-  // Авторизация
   fetch("/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ initData: tg.initData })
   })
-  .then(r => r.text())
-  .then(result => {
-    document.getElementById("status").innerText = result;
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok || !data.token) {
+      document.getElementById("status").innerText = "AUTH ERROR";
+      return;
+    }
+
+    // ✅ СОХРАНЯЕМ JWT
+    localStorage.setItem("token", data.token);
+
+    document.getElementById("status").innerText = "Пользователь подтверждён";
+    console.log("TOKEN:", data.token);
   })
   .catch(() => {
     document.getElementById("status").innerText = "Ошибка соединения";
