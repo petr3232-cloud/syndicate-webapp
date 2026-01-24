@@ -51,7 +51,7 @@ function checkTelegramAuth(initData) {
   return hmac === hash;
 }
 
-/* ===== JWT MIDDLEWARE ===== */
+/* ===== JWT ===== */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "NO TOKEN" });
@@ -63,6 +63,23 @@ function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: "INVALID TOKEN" });
   }
+}
+
+/* ===== ADMIN CHECK ===== */
+async function requireAdmin(req, res, next) {
+  const { telegram_id } = req.user;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("is_admin")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  if (!user || !user.is_admin) {
+    return res.status(403).json({ error: "NOT ADMIN" });
+  }
+
+  next();
 }
 
 /* ===== ROUTES ===== */
@@ -91,7 +108,8 @@ app.post("/auth", async (req, res) => {
       telegram_id: telegramId,
       username: tgUser.username ?? null,
       points: 0,
-      level: "Новичок"
+      level: "Новичок",
+      is_admin: false
     });
   }
 
@@ -108,15 +126,57 @@ app.post("/auth", async (req, res) => {
 app.get("/me", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (error) return res.status(500).json({ error: "DB ERROR" });
   res.json({ ok: true, user: data });
 });
+
+/* ======================================================
+   ===== ADMIN: ОТКРЫТЬ ЗАДАНИЕ ДНЯ =====
+   POST /admin/open-day
+   body: { "day": 1 }
+====================================================== */
+app.post(
+  "/admin/open-day",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { day } = req.body;
+    if (!day) return res.status(400).json({ error: "NO DAY" });
+
+    // активируем задание
+    await supabase
+      .from("tasks")
+      .update({ is_active: true })
+      .eq("day", day);
+
+    // получаем задание
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("day", day)
+      .single();
+
+    // всем пользователям создаём user_tasks
+    const { data: users } = await supabase
+      .from("users")
+      .select("id");
+
+    const rows = users.map(u => ({
+      user_id: u.id,
+      task_id: task.id,
+      status: "active"
+    }));
+
+    await supabase.from("user_tasks").insert(rows);
+
+    res.json({ ok: true, opened_day: day });
+  }
+);
 
 /* ===== START ===== */
 app.listen(PORT, () => {
