@@ -38,6 +38,15 @@
       opacity: 0.7;
       text-align: center;
     }
+    #output {
+      margin-top: 12px;
+      font-size: 12px;
+      white-space: pre-wrap;
+      background: #111;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #333;
+    }
   </style>
 </head>
 <body>
@@ -54,6 +63,7 @@
 </div>
 
 <p id="status">Проверка пользователя...</p>
+<pre id="output"></pre>
 
 <script>
   const tg = window.Telegram.WebApp;
@@ -68,17 +78,34 @@
   .then(data => {
     if (!data.ok || !data.token) {
       document.getElementById("status").innerText = "AUTH ERROR";
+      document.getElementById("output").innerText = JSON.stringify(data, null, 2);
       return;
     }
 
-    // ✅ СОХРАНЯЕМ JWT
+    // сохраняем токен
     localStorage.setItem("token", data.token);
+    document.getElementById("status").innerText = "Токен получен";
 
-    document.getElementById("status").innerText = "Пользователь подтверждён";
-    console.log("TOKEN:", data.token);
+    // СРАЗУ проверяем /me и выводим результат НА ЭКРАН
+    fetch("/me", {
+      headers: {
+        Authorization: "Bearer " + data.token
+      }
+    })
+    .then(r => r.json())
+    .then(me => {
+      document.getElementById("status").innerText = "Пользователь загружен";
+      document.getElementById("output").innerText =
+        JSON.stringify(me, null, 2);
+    })
+    .catch(err => {
+      document.getElementById("status").innerText = "Ошибка /me";
+      document.getElementById("output").innerText = String(err);
+    });
   })
-  .catch(() => {
+  .catch(err => {
     document.getElementById("status").innerText = "Ошибка соединения";
+    document.getElementById("output").innerText = String(err);
   });
 
   function openSection(name) {
