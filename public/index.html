@@ -38,14 +38,12 @@
       opacity: 0.7;
       text-align: center;
     }
-    #output {
-      margin-top: 12px;
-      font-size: 12px;
-      white-space: pre-wrap;
+    pre {
       background: #111;
       padding: 10px;
       border-radius: 6px;
-      border: 1px solid #333;
+      font-size: 12px;
+      overflow-x: auto;
     }
   </style>
 </head>
@@ -62,13 +60,28 @@
   <div class="btn" onclick="openSection('settings')">⚙️ Настройки</div>
 </div>
 
-<p id="status">Проверка пользователя...</p>
+<p id="status">Авторизация...</p>
 <pre id="output"></pre>
 
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
 
+  // 🔐 ГЛОБАЛЬНЫЙ ТОКЕН (ТОЛЬКО В ПАМЯТИ)
+  window.APP_TOKEN = null;
+
+  // 🔁 ОБЩИЙ FETCH С АВТО-ТОКЕНОМ
+  function apiFetch(url, options = {}) {
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: "Bearer " + window.APP_TOKEN
+      }
+    }).then(r => r.json());
+  }
+
+  // 1️⃣ AUTH
   fetch("/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -78,34 +91,23 @@
   .then(data => {
     if (!data.ok || !data.token) {
       document.getElementById("status").innerText = "AUTH ERROR";
-      document.getElementById("output").innerText = JSON.stringify(data, null, 2);
       return;
     }
 
-    // сохраняем токен
-    localStorage.setItem("token", data.token);
-    document.getElementById("status").innerText = "Токен получен";
+    // ✅ СОХРАНЯЕМ В ПАМЯТИ
+    window.APP_TOKEN = data.token;
+    document.getElementById("status").innerText = "Авторизация OK";
 
-    // СРАЗУ проверяем /me и выводим результат НА ЭКРАН
-    fetch("/me", {
-      headers: {
-        Authorization: "Bearer " + data.token
-      }
-    })
-    .then(r => r.json())
-    .then(me => {
-      document.getElementById("status").innerText = "Пользователь загружен";
-      document.getElementById("output").innerText =
-        JSON.stringify(me, null, 2);
-    })
-    .catch(err => {
-      document.getElementById("status").innerText = "Ошибка /me";
-      document.getElementById("output").innerText = String(err);
-    });
+    // 2️⃣ ПРОВЕРКА /me (ВЫВОД НА ЭКРАН)
+    return apiFetch("/me");
+  })
+  .then(me => {
+    document.getElementById("output").innerText =
+      JSON.stringify(me, null, 2);
   })
   .catch(err => {
-    document.getElementById("status").innerText = "Ошибка соединения";
-    document.getElementById("output").innerText = String(err);
+    document.getElementById("status").innerText = "Ошибка";
+    document.getElementById("output").innerText = err.toString();
   });
 
   function openSection(name) {
