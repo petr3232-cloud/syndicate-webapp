@@ -1,1 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>ADMIN — SYNDICATE</title>
+  <style>
+    body { background:#0f0f0f; color:#fff; font-family:Arial; padding:20px }
+    button { width:100%; padding:14px; margin-bottom:10px; font-size:16px }
+  </style>
+</head>
+<body>
+
+<h2>Админ панель</h2>
+
+<button onclick="openDay(1)">Открыть День 1</button>
+<button onclick="openDay(2)">Открыть День 2</button>
+<button onclick="openDay(3)">Открыть День 3</button>
+<button onclick="openDay(4)">Открыть День 4</button>
+<button onclick="openDay(5)">Открыть День 5</button>
+<button onclick="openDay(6)">Открыть День 6</button>
+<button onclick="openDay(7)">Открыть День 7</button>
+
+<pre id="out"></pre>
+
+<script>
+async function openDay(day) {
+  const token = localStorage.getItem("token");
+  const r = await fetch("/admin/open-day", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + token
+    },
+    body: JSON.stringify({ day })
+  });
+
+  const data = await r.json();
+  document.getElementById("out").innerText =
+    JSON.stringify(data, null, 2);
+}
+</script>
+
+</body>
+</html>
 
