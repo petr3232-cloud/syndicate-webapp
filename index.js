@@ -7,12 +7,12 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-/* ===== BOOT LOG ===== */
+/* ===== BOOT ===== */
 console.log("🔥 SERVER BOOT");
-console.log("SUPABASE_URL:", process.env.SUPABASE_URL ? "OK" : "NO");
-console.log("SUPABASE_SECRET_KEY:", process.env.SUPABASE_SECRET_KEY ? "OK" : "NO");
-console.log("BOT_TOKEN:", process.env.BOT_TOKEN ? "OK" : "NO");
-console.log("JWT_SECRET:", process.env.JWT_SECRET ? "OK" : "NO");
+console.log("SUPABASE_URL:", !!process.env.SUPABASE_URL);
+console.log("SUPABASE_SECRET_KEY:", !!process.env.SUPABASE_SECRET_KEY);
+console.log("BOT_TOKEN:", !!process.env.BOT_TOKEN);
+console.log("JWT_SECRET:", !!process.env.JWT_SECRET);
 
 /* ===== SUPABASE ===== */
 const supabase = createClient(
@@ -29,22 +29,22 @@ app.get("/health", (_, res) => res.send("OK"));
 
 /* ===== TELEGRAM CHECK ===== */
 function checkTelegramAuth(initData) {
-  const urlParams = new URLSearchParams(initData);
-  const hash = urlParams.get("hash");
-  urlParams.delete("hash");
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  params.delete("hash");
 
-  const dataCheckString = [...urlParams.entries()]
+  const dataCheckString = [...params.entries()]
     .sort()
     .map(([k, v]) => `${k}=${v}`)
     .join("\n");
 
-  const secretKey = crypto
+  const secret = crypto
     .createHmac("sha256", "WebAppData")
     .update(process.env.BOT_TOKEN)
     .digest();
 
   const hmac = crypto
-    .createHmac("sha256", secretKey)
+    .createHmac("sha256", secret)
     .update(dataCheckString)
     .digest("hex");
 
@@ -56,10 +56,9 @@ function requireAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "NO TOKEN" });
 
-  const token = header.replace("Bearer ", "");
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload;
+    const token = header.replace("Bearer ", "");
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
     return res.status(401).json({ error: "INVALID TOKEN" });
@@ -81,18 +80,11 @@ app.post("/auth", async (req, res) => {
   const tgUser = JSON.parse(params.get("user"));
   const telegramId = String(tgUser.id);
 
-  console.log("✅ USER:", tgUser);
-
-  const { data: user, error } = await supabase
+  let { data: user } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegramId)
     .single();
-
-  if (error && error.code !== "PGRST116") {
-    console.log("DB ERROR:", error);
-    return res.status(500).send("DB ERROR");
-  }
 
   if (!user) {
     await supabase.from("users").insert({
@@ -101,12 +93,8 @@ app.post("/auth", async (req, res) => {
       points: 0,
       level: "Новичок"
     });
-    console.log("🆕 USER INSERTED");
-  } else {
-    console.log("👤 USER EXISTS");
   }
 
-  /* 🔐 ВЫДАЁМ JWT */
   const token = jwt.sign(
     { telegram_id: telegramId },
     process.env.JWT_SECRET,
@@ -126,11 +114,7 @@ app.get("/me", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (error) {
-    console.log("ME ERROR:", error);
-    return res.status(500).json({ error: "DB ERROR" });
-  }
-
+  if (error) return res.status(500).json({ error: "DB ERROR" });
   res.json({ ok: true, user: data });
 });
 
