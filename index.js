@@ -69,7 +69,7 @@ async function requireAdmin(req, res, next) {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user?.is_admin) {
+  if (!user || user.is_admin !== true) {
     return res.status(403).json({ error: "NOT ADMIN" });
   }
   next();
@@ -140,14 +140,20 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
     .select()
     .single();
 
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (!task) {
+    return res.status(404).json({ error: "TASK NOT FOUND" });
+  }
+
   res.json({ ok: true });
 });
 
-/* ===== MY TASK + CHECKLIST (ФИКС) ===== */
+/* ======================================================
+   ===== MY TASK + CHECKLIST (КЛЮЧЕВОЙ ФИКС) =====
+   ====================================================== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
+  /* 1. Пользователь */
   const { data: user } = await supabase
     .from("users")
     .select("id")
@@ -158,6 +164,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
+  /* 2. Активное задание */
   const { data: task } = await supabase
     .from("tasks")
     .select("*")
@@ -168,7 +175,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
-  // ВАЖНО: LEFT JOIN — пункты видны даже без отметок
+  /* 3. ВСЕ пункты чек-листа (LEFT JOIN!) */
   const { data: items } = await supabase
     .from("task_checklist_items")
     .select(`
@@ -181,14 +188,15 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     `)
     .eq("task_id", task.id);
 
-  const checklist = (items || []).map(i => {
-    const userRow = i.user_checklist_items?.find(
+  const checklist = (items || []).map(item => {
+    const row = item.user_checklist_items?.find(
       r => r.user_id === user.id
     );
+
     return {
-      id: i.id,
-      title: i.title,
-      done: userRow ? userRow.done : false
+      id: item.id,
+      title: item.title,
+      done: row ? row.done : false
     };
   });
 
@@ -199,7 +207,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
       day: task.day,
       title: task.title,
       mission: task.mission,
-      description: task.description ?? ""
+      description: task.description || ""
     },
     checklist
   });
