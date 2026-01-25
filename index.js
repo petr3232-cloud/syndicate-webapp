@@ -141,12 +141,14 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
     .select()
     .single();
 
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (!task) {
+    return res.status(404).json({ error: "TASK NOT FOUND" });
+  }
 
   res.json({ ok: true });
 });
 
-/* ===== MY TASK + CHECKLIST (ГЛАВНОЕ) ===== */
+/* ===== MY TASK + CHECKLIST (FIXED) ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
@@ -175,10 +177,24 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     .select(`
       id,
       title,
-      user_checklist_items ( done )
+      user_checklist_items (
+        done,
+        user_id
+      )
     `)
-    .eq("task_id", task.id)
-    .eq("user_checklist_items.user_id", user.id);
+    .eq("task_id", task.id);
+
+  const checklist = (items || []).map(item => {
+    const userItem = item.user_checklist_items?.find(
+      u => u.user_id === user.id
+    );
+
+    return {
+      id: item.id,
+      title: item.title,
+      done: userItem?.done === true
+    };
+  });
 
   res.json({
     ok: true,
@@ -187,13 +203,9 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
       day: task.day,
       title: task.title,
       mission: task.mission,
-      description: task.description || ""
+      description: task.description ?? ""
     },
-    checklist: (items || []).map(i => ({
-      id: i.id,
-      title: i.title,
-      done: i.user_checklist_items?.[0]?.done === true
-    }))
+    checklist
   });
 });
 
@@ -207,8 +219,6 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
-
-  if (!user) return res.json({ ok: true });
 
   await supabase.from("user_checklist_items").upsert(
     {
