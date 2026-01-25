@@ -14,32 +14,24 @@
     .btn {
       padding:12px;
       background:#1e1e1e;
-      margin:6px 0;
+      margin:8px 0;
       border-radius:8px;
       cursor:pointer;
       text-align:center;
     }
-    .check { cursor:pointer; margin:6px 0; }
-    .admin { margin-top:20px; border-top:1px solid #333; padding-top:10px; }
-    input { width:100%; padding:8px; margin:6px 0; }
+    .check {
+      margin:6px 0;
+      cursor:pointer;
+    }
+    .task {
+      margin-top:16px;
+    }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
-
 <div class="btn" onclick="openTasks()">📋 Мои задания</div>
-
-<div id="adminPanel" class="admin" style="display:none">
-  <div class="btn" onclick="openDay(1)">Открыть день 1</div>
-
-  <hr>
-
-  <div class="btn" onclick="loadChecklist(1)">⚙ Чек‑лист дня 1</div>
-  <input id="newItem" placeholder="Новый пункт">
-  <div class="btn" onclick="addItem(1)">➕ Добавить пункт</div>
-  <div id="adminChecklist"></div>
-</div>
 
 <div id="output"></div>
 
@@ -68,29 +60,34 @@ fetch("/auth", {
 .then(r=>r.json())
 .then(d=>{
   TOKEN = d.token;
-  return api("/me");
-})
-.then(me=>{
-  if (me.user.is_admin) {
-    adminPanel.style.display = "block";
-  }
 });
 
-/* USER TASKS */
+/* LOAD TASK */
 function openTasks() {
   api("/my-tasks").then(d=>{
     if (!d.task) {
-      output.innerText = "Нет активных заданий";
+      output.innerHTML = "<p>Нет активных заданий</p>";
       return;
     }
 
-    let html = `<h3>${d.task.title}</h3><p>${d.task.mission}</p>`;
+    let html = `
+      <div class="task">
+        <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
+        <h3>Миссия: "${d.task.mission}"</h3>
+        <p>${d.task.description}</p>
+
+        <h4>Чек‑лист</h4>
+    `;
+
     d.checklist.forEach(i=>{
       html += `
         <div class="check" onclick="toggle('${i.id}', ${!i.done})">
           ${i.done ? "✅" : "⬜"} ${i.title}
-        </div>`;
+        </div>
+      `;
     });
+
+    html += "</div>";
     output.innerHTML = html;
   });
 }
@@ -101,47 +98,7 @@ function toggle(id, done) {
     body:JSON.stringify({ checklist_id:id, done })
   }).then(openTasks);
 }
-
-/* ADMIN */
-function openDay(day) {
-  api("/admin/open-day", {
-    method:"POST",
-    body:JSON.stringify({ day })
-  }).then(()=>alert("День открыт"));
-}
-
-function loadChecklist(day) {
-  api(`/admin/checklist/${day}`).then(d=>{
-    let html="";
-    d.items.forEach(i=>{
-      html+=`
-        <div>
-          • ${i.title}
-          <span style="color:red;cursor:pointer"
-            onclick="deleteItem('${i.id}',${day})"> ✖</span>
-        </div>`;
-    });
-    adminChecklist.innerHTML = html;
-  });
-}
-
-function addItem(day) {
-  const title = newItem.value.trim();
-  if (!title) return;
-
-  api("/admin/checklist", {
-    method:"POST",
-    body:JSON.stringify({ day, title })
-  }).then(()=>{
-    newItem.value="";
-    loadChecklist(day);
-  });
-}
-
-function deleteItem(id, day) {
-  api(`/admin/checklist/${id}`, { method:"DELETE" })
-    .then(()=>loadChecklist(day));
-}
 </script>
+
 </body>
 </html>
