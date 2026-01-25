@@ -9,167 +9,103 @@
       background: #0f0f0f;
       color: #fff;
       font-family: Arial, sans-serif;
-      margin: 0;
       padding: 16px;
     }
-    h1 {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    .menu, .admin {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-top: 16px;
-    }
+    h1 { text-align: center; }
     .btn {
       padding: 14px;
       background: #1e1e1e;
       border-radius: 8px;
-      text-align: center;
+      margin: 6px 0;
       cursor: pointer;
-      border: 1px solid #333;
-    }
-    .btn:hover {
-      background: #2a2a2a;
-    }
-    .admin {
-      border-top: 1px solid #333;
-      padding-top: 16px;
-      margin-top: 24px;
-    }
-    .admin-title {
       text-align: center;
-      opacity: 0.7;
-      font-size: 14px;
     }
-    #status {
-      margin-top: 16px;
-      font-size: 14px;
-      text-align: center;
-      opacity: 0.85;
-    }
-    pre {
-      background: #111;
-      padding: 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      margin-top: 12px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
+    .admin { margin-top: 20px; border-top: 1px solid #333; padding-top: 10px; }
+    .check { cursor: pointer; margin: 6px 0; }
+    #output { white-space: pre-wrap; margin-top: 12px; }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
 
-<div class="menu">
-  <div class="btn" onclick="openSection('path')">🧭 Мой путь</div>
-  <div class="btn" onclick="openSection('tasks')">📋 Мои задания</div>
-  <div class="btn" onclick="openSection('inventory')">🎒 Инвентарь</div>
-  <div class="btn" onclick="openSection('doppel')">🧬 Доппельгангер</div>
-  <div class="btn" onclick="openSection('shop')">🛒 Магазин</div>
-  <div class="btn" onclick="openSection('settings')">⚙️ Настройки</div>
-</div>
+<div class="btn" onclick="openTasks()">📋 Мои задания</div>
 
-<!-- ADMIN PANEL -->
 <div id="adminPanel" class="admin" style="display:none">
-  <div class="admin-title">🛠 АДМИН ПАНЕЛЬ</div>
   <div class="btn" onclick="openDay(1)">Открыть день 1</div>
   <div class="btn" onclick="openDay(2)">Открыть день 2</div>
-  <div class="btn" onclick="openDay(3)">Открыть день 3</div>
-  <div class="btn" onclick="openDay(4)">Открыть день 4</div>
-  <div class="btn" onclick="openDay(5)">Открыть день 5</div>
-  <div class="btn" onclick="openDay(6)">Открыть день 6</div>
-  <div class="btn" onclick="openDay(7)">Открыть день 7</div>
 </div>
 
-<p id="status">Авторизация…</p>
-<pre id="output"></pre>
+<div id="output"></div>
 
 <script>
-  const tg = window.Telegram.WebApp;
-  tg.ready();
+const tg = window.Telegram.WebApp;
+tg.ready();
 
-  window.APP_TOKEN = null;
-  window.ME = null;
+let TOKEN = null;
+let ME = null;
 
-  function apiFetch(url, options = {}) {
-    if (!window.APP_TOKEN) {
-      return Promise.reject({ error: "NO TOKEN" });
+function api(url, options={}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + TOKEN
     }
-    return fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-        Authorization: "Bearer " + window.APP_TOKEN
-      }
-    }).then(async r => {
-      const data = await r.json();
-      if (!r.ok) throw data;
-      return data;
-    });
-  }
+  }).then(r => r.json());
+}
 
-  // AUTH
-  fetch("/auth", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ initData: tg.initData })
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (!data.ok || !data.token) {
-      document.getElementById("status").innerText = "AUTH ERROR";
-      document.getElementById("output").innerText =
-        JSON.stringify(data, null, 2);
+/* AUTH */
+fetch("/auth", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ initData: tg.initData })
+})
+.then(r => r.json())
+.then(d => {
+  TOKEN = d.token;
+  return api("/me");
+})
+.then(me => {
+  ME = me.user;
+  if (ME.is_admin) {
+    document.getElementById("adminPanel").style.display = "block";
+  }
+});
+
+/* TASKS */
+function openTasks() {
+  api("/my-tasks").then(data => {
+    if (!data.task) {
+      output.innerText = "Нет активных заданий";
       return;
     }
 
-    window.APP_TOKEN = data.token;
-    document.getElementById("status").innerText = "Авторизация OK";
-    return apiFetch("/me");
-  })
-  .then(me => {
-    if (!me) return;
+    let html = `🔥 ${data.task.title}\n\n${data.task.mission}\n\n`;
 
-    window.ME = me.user;
-    document.getElementById("output").innerText =
-      JSON.stringify(me, null, 2);
-
-    if (me.user.is_admin === true) {
-      document.getElementById("adminPanel").style.display = "flex";
-    }
-  })
-  .catch(err => {
-    document.getElementById("status").innerText = "Ошибка";
-    document.getElementById("output").innerText =
-      JSON.stringify(err, null, 2);
-  });
-
-  function openSection(name) {
-    alert("Раздел: " + name + "\n(дальше сделаем)");
-  }
-
-  function openDay(day) {
-    apiFetch("/admin/open-day", {
-      method: "POST",
-      body: JSON.stringify({ day })
-    })
-    .then(res => {
-      document.getElementById("output").innerText =
-        JSON.stringify(res, null, 2);
-      alert("День " + day + " открыт");
-    })
-    .catch(err => {
-      document.getElementById("output").innerText =
-        JSON.stringify(err, null, 2);
-      alert("Ошибка");
+    data.checklist.forEach(i => {
+      html += `<div class="check" onclick="toggle('${i.id}', ${!i.done})">
+        ${i.done ? "✅" : "⬜"} ${i.title}
+      </div>`;
     });
-  }
-</script>
 
+    output.innerHTML = html;
+  });
+}
+
+function toggle(id, done) {
+  api("/checklist/toggle", {
+    method: "POST",
+    body: JSON.stringify({ checklist_id: id, done })
+  }).then(openTasks);
+}
+
+function openDay(day) {
+  api("/admin/open-day", {
+    method: "POST",
+    body: JSON.stringify({ day })
+  }).then(() => alert("День открыт"));
+}
+</script>
 </body>
 </html>
