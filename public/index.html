@@ -63,11 +63,14 @@ fetch("/auth", {
 
 /* LOAD TASK */
 function openTasks() {
-  api("/my-tasks").then(d => {
-    if (!d.task) {
-      output.innerHTML = "<p>Нет активных заданий</p>";
-      return;
-    }
+  api("/my-tasks").then(d=>{
+    console.log("MY TASKS RESPONSE:", d);
+
+    let html = `<pre>${JSON.stringify(d, null, 2)}</pre>`;
+    output.innerHTML = html;
+  });
+}
+
 
     let html = `
       <div class="task">
