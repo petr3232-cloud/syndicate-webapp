@@ -20,9 +20,19 @@
       cursor: pointer;
       text-align: center;
     }
-    .admin { margin-top: 20px; border-top: 1px solid #333; padding-top: 10px; }
-    .check { cursor: pointer; margin: 6px 0; }
-    #output { white-space: pre-wrap; margin-top: 12px; }
+    .check {
+      cursor: pointer;
+      margin: 6px 0;
+    }
+    .admin {
+      margin-top: 20px;
+      border-top: 1px solid #333;
+      padding-top: 10px;
+    }
+    #output {
+      white-space: pre-wrap;
+      margin-top: 12px;
+    }
   </style>
 </head>
 <body>
@@ -45,7 +55,7 @@ tg.ready();
 let TOKEN = null;
 let ME = null;
 
-function api(url, options={}) {
+function api(url, options = {}) {
   return fetch(url, {
     ...options,
     headers: {
@@ -81,12 +91,18 @@ function openTasks() {
       return;
     }
 
-    let html = `🔥 ${data.task.title}\n\n${data.task.mission}\n\n`;
+    let html = `
+🔥 ${data.task.title}
+
+${data.task.mission}
+
+`;
 
     data.checklist.forEach(i => {
-      html += `<div class="check" onclick="toggle('${i.id}', ${!i.done})">
-        ${i.done ? "✅" : "⬜"} ${i.title}
-      </div>`;
+      html += `
+<div class="check" onclick="toggle('${i.id}', ${!i.done})">
+  ${i.done ? "✅" : "⬜"} ${i.title}
+</div>`;
     });
 
     output.innerHTML = html;
@@ -96,7 +112,10 @@ function openTasks() {
 function toggle(id, done) {
   api("/checklist/toggle", {
     method: "POST",
-    body: JSON.stringify({ checklist_id: id, done })
+    body: JSON.stringify({
+      checklist_item_id: id,
+      done
+    })
   }).then(openTasks);
 }
 
@@ -107,5 +126,6 @@ function openDay(day) {
   }).then(() => alert("День открыт"));
 }
 </script>
+
 </body>
 </html>
