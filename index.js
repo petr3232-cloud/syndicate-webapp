@@ -149,10 +149,6 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
 });
 
 /* ===== MY TASK + CHECKLIST ===== */
-/*
-  /my-tasks           -> активный день
-  /my-tasks?day=1     -> конкретный день
-*/
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
   const day = req.query.day ? Number(req.query.day) : null;
@@ -197,7 +193,8 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
       id: task.id,
       day: task.day,
       title: task.title,
-      mission: task.mission
+      mission: task.mission,
+      description: task.description ?? ""
     },
     checklist: (items || []).map(i => ({
       id: i.id,
