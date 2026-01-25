@@ -141,17 +141,14 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
     .select()
     .single();
 
-  if (!task) {
-    return res.status(404).json({ error: "TASK NOT FOUND" });
-  }
+  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
 
   res.json({ ok: true });
 });
 
-/* ===== MY TASK + CHECKLIST ===== */
+/* ===== MY TASK + CHECKLIST (ГЛАВНОЕ) ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
-  const day = req.query.day ? Number(req.query.day) : null;
 
   const { data: user } = await supabase
     .from("users")
@@ -163,15 +160,11 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
-  let taskQuery = supabase.from("tasks").select("*");
-
-  if (day !== null) {
-    taskQuery = taskQuery.eq("day", day);
-  } else {
-    taskQuery = taskQuery.eq("is_active", true);
-  }
-
-  const { data: task } = await taskQuery.single();
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("is_active", true)
+    .single();
 
   if (!task) {
     return res.json({ ok: true, task: null, checklist: [] });
@@ -194,7 +187,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
       day: task.day,
       title: task.title,
       mission: task.mission,
-      description: task.description ?? ""
+      description: task.description || ""
     },
     checklist: (items || []).map(i => ({
       id: i.id,
@@ -225,56 +218,6 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     },
     { onConflict: "user_id,checklist_item_id" }
   );
-
-  res.json({ ok: true });
-});
-
-/* ===== ADMIN CHECKLIST ===== */
-app.get("/admin/checklist/:day", requireAuth, requireAdmin, async (req, res) => {
-  const day = Number(req.params.day);
-
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("id")
-    .eq("day", day)
-    .single();
-
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
-
-  const { data } = await supabase
-    .from("task_checklist_items")
-    .select("*")
-    .eq("task_id", task.id)
-    .order("created_at");
-
-  res.json({ ok: true, items: data || [] });
-});
-
-app.post("/admin/checklist", requireAuth, requireAdmin, async (req, res) => {
-  const { day, title } = req.body;
-
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("id")
-    .eq("day", day)
-    .single();
-
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
-
-  const { data } = await supabase
-    .from("task_checklist_items")
-    .insert({ task_id: task.id, title })
-    .select()
-    .single();
-
-  res.json({ ok: true, item: data });
-});
-
-app.delete("/admin/checklist/:id", requireAuth, requireAdmin, async (req, res) => {
-  await supabase
-    .from("task_checklist_items")
-    .delete()
-    .eq("id", req.params.id);
 
   res.json({ ok: true });
 });
