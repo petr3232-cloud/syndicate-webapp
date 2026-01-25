@@ -7,9 +7,6 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-/* ===== BOOT ===== */
-console.log("🔥 SERVER BOOT");
-
 /* ===== SUPABASE ===== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -74,6 +71,7 @@ async function requireAdmin(req, res, next) {
   if (!user || user.is_admin !== true) {
     return res.status(403).json({ error: "NOT ADMIN" });
   }
+
   next();
 }
 
@@ -134,16 +132,20 @@ app.get("/me", requireAuth, async (req, res) => {
 app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
   const { day } = req.body;
 
-  const { data: task } = await supabase
+  const { data: task, error } = await supabase
     .from("tasks")
     .update({ is_active: true })
     .eq("day", day)
-    .select("*")
+    .select("id")
     .single();
 
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (error || !task) {
+    return res.status(404).json({ error: "TASK NOT FOUND" });
+  }
 
-  const { data: users } = await supabase.from("users").select("id");
+  const { data: users } = await supabase
+    .from("users")
+    .select("id");
 
   const rows = users.map(u => ({
     user_id: u.id,
@@ -172,19 +174,29 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     .from("tasks")
     .select("*")
     .eq("is_active", true)
+    .order("day", { ascending: true })
+    .limit(1)
     .single();
 
-  if (!task) return res.json({ ok: true, task: null });
+  if (!task) {
+    return res.json({ ok: true, task: null });
+  }
 
   const { data: checklist } = await supabase
-    .from("task_checklist")
-    .select(`
-      id,
-      title,
-      user_checklist ( done )
-    `)
+    .from("task_checklist_items")
+    .select("*")
     .eq("task_id", task.id)
-    .eq("user_checklist.user_id", user.id);
+    .order("order", { ascending: true });
+
+  const { data: userChecks } = await supabase
+    .from("user_checklist_items")
+    .select("checklist_item_id, is_done")
+    .eq("user_id", user.id);
+
+  const doneMap = {};
+  userChecks.forEach(i => {
+    doneMap[i.checklist_item_id] = i.is_done;
+  });
 
   res.json({
     ok: true,
@@ -192,14 +204,14 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     checklist: checklist.map(i => ({
       id: i.id,
       title: i.title,
-      done: i.user_checklist?.[0]?.done === true
+      done: doneMap[i.id] === true
     }))
   });
 });
 
 /* ===== CHECKLIST TOGGLE ===== */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
-  const { checklist_id, done } = req.body;
+  const { checklist_item_id, done } = req.body;
   const { telegram_id } = req.user;
 
   const { data: user } = await supabase
@@ -208,13 +220,14 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  await supabase.from("user_checklist").upsert(
+  await supabase.from("user_checklist_items").upsert(
     {
       user_id: user.id,
-      checklist_id,
-      done
+      checklist_item_id,
+      is_done: done,
+      completed_at: done ? new Date().toISOString() : null
     },
-    { onConflict: "user_id,checklist_id" }
+    { onConflict: "user_id,checklist_item_id" }
   );
 
   res.json({ ok: true });
