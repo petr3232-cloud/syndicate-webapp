@@ -19,12 +19,12 @@
       cursor:pointer;
       text-align:center;
     }
+    .task {
+      margin-top:16px;
+    }
     .check {
       margin:6px 0;
       cursor:pointer;
-    }
-    .task {
-      margin-top:16px;
     }
   </style>
 </head>
@@ -32,7 +32,6 @@
 
 <h1>SYNDICATE</h1>
 <div class="btn" onclick="openTasks()">📋 Мои задания</div>
-
 <div id="output"></div>
 
 <script>
@@ -48,7 +47,7 @@ function api(url, options={}) {
       "Content-Type":"application/json",
       Authorization:"Bearer " + TOKEN
     }
-  }).then(r=>r.json());
+  }).then(r => r.json());
 }
 
 /* AUTH */
@@ -57,14 +56,14 @@ fetch("/auth", {
   headers:{ "Content-Type":"application/json" },
   body:JSON.stringify({ initData: tg.initData })
 })
-.then(r=>r.json())
-.then(d=>{
+.then(r => r.json())
+.then(d => {
   TOKEN = d.token;
 });
 
 /* LOAD TASK */
 function openTasks() {
-  api("/my-tasks").then(d=>{
+  api("/my-tasks").then(d => {
     if (!d.task) {
       output.innerHTML = "<p>Нет активных заданий</p>";
       return;
@@ -75,11 +74,10 @@ function openTasks() {
         <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
         <h3>Миссия: "${d.task.mission}"</h3>
         <p>${d.task.description}</p>
-
         <h4>Чек‑лист</h4>
     `;
 
-    d.checklist.forEach(i=>{
+    d.checklist.forEach(i => {
       html += `
         <div class="check" onclick="toggle('${i.id}', ${!i.done})">
           ${i.done ? "✅" : "⬜"} ${i.title}
