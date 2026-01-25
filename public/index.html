@@ -18,6 +18,12 @@
       border-radius:8px;
       cursor:pointer;
       text-align:center;
+      opacity:0.5;
+      pointer-events:none;
+    }
+    .btn.active {
+      opacity:1;
+      pointer-events:auto;
     }
     .task {
       margin-top:16px;
@@ -26,20 +32,13 @@
       margin:6px 0;
       cursor:pointer;
     }
-    pre {
-      background:#111;
-      padding:10px;
-      overflow:auto;
-      font-size:12px;
-    }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
 
-<div class="btn" onclick="openTasks()">📋 Мои задания</div>
-
+<div id="tasksBtn" class="btn">📋 Мои задания</div>
 <div id="output"></div>
 
 <script>
@@ -47,8 +46,9 @@ const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
+const tasksBtn = document.getElementById("tasksBtn");
+const output = document.getElementById("output");
 
-/* ===== API ===== */
 function api(url, options = {}) {
   return fetch(url, {
     ...options,
@@ -59,7 +59,7 @@ function api(url, options = {}) {
   }).then(r => r.json());
 }
 
-/* ===== AUTH ===== */
+/* ===== AUTH (ЖДЁМ ТОКЕН) ===== */
 fetch("/auth", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -67,8 +67,13 @@ fetch("/auth", {
 })
 .then(r => r.json())
 .then(d => {
+  if (!d.token) {
+    output.innerHTML = "<p>❌ Ошибка авторизации</p>";
+    return;
+  }
   TOKEN = d.token;
-  console.log("TOKEN OK");
+  tasksBtn.classList.add("active");
+  tasksBtn.onclick = openTasks;
 });
 
 /* ===== LOAD TASK ===== */
@@ -76,16 +81,16 @@ function openTasks() {
   api("/my-tasks").then(d => {
     console.log("MY TASKS RESPONSE:", d);
 
-    // 🔴 ВРЕМЕННО: выводим ответ сервера КАК ЕСТЬ
-    output.innerHTML = `
-      <h3>RAW RESPONSE</h3>
-      <pre>${JSON.stringify(d, null, 2)}</pre>
-    `;
+    if (d.error) {
+      output.innerHTML = `<pre>${JSON.stringify(d, null, 2)}</pre>`;
+      return;
+    }
 
-    // ❗ если нет задания — дальше не рисуем
-    if (!d.task) return;
+    if (!d.task) {
+      output.innerHTML = "<p>Нет активных заданий</p>";
+      return;
+    }
 
-    // 🟢 нормальный рендер
     let html = `
       <div class="task">
         <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
@@ -94,25 +99,19 @@ function openTasks() {
         <h4>Чек‑лист</h4>
     `;
 
-    if (!d.checklist || d.checklist.length === 0) {
-      html += `<p>❌ Чек‑лист пуст</p>`;
-    } else {
-      d.checklist.forEach(i => {
-        html += `
-          <div class="check" onclick="toggle('${i.id}', ${!i.done})">
-            ${i.done ? "✅" : "⬜"} ${i.title}
-          </div>
-        `;
-      });
-    }
+    d.checklist.forEach(i => {
+      html += `
+        <div class="check" onclick="toggle('${i.id}', ${!i.done})">
+          ${i.done ? "✅" : "⬜"} ${i.title}
+        </div>
+      `;
+    });
 
     html += "</div>";
-
-    output.innerHTML += html;
+    output.innerHTML = html;
   });
 }
 
-/* ===== TOGGLE ===== */
 function toggle(id, done) {
   api("/checklist/toggle", {
     method: "POST",
