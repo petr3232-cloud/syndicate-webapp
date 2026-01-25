@@ -16,10 +16,11 @@
       text-align: center;
       margin-bottom: 20px;
     }
-    .menu {
+    .menu, .admin {
       display: flex;
       flex-direction: column;
       gap: 12px;
+      margin-top: 16px;
     }
     .btn {
       padding: 14px;
@@ -31,6 +32,16 @@
     }
     .btn:hover {
       background: #2a2a2a;
+    }
+    .admin {
+      border-top: 1px solid #333;
+      padding-top: 16px;
+      margin-top: 24px;
+    }
+    .admin-title {
+      text-align: center;
+      opacity: 0.7;
+      font-size: 14px;
     }
     #status {
       margin-top: 16px;
@@ -63,6 +74,18 @@
   <div class="btn" onclick="openSection('settings')">⚙️ Настройки</div>
 </div>
 
+<!-- ADMIN PANEL -->
+<div id="adminPanel" class="admin" style="display:none">
+  <div class="admin-title">🛠 АДМИН ПАНЕЛЬ</div>
+  <div class="btn" onclick="openDay(1)">Открыть день 1</div>
+  <div class="btn" onclick="openDay(2)">Открыть день 2</div>
+  <div class="btn" onclick="openDay(3)">Открыть день 3</div>
+  <div class="btn" onclick="openDay(4)">Открыть день 4</div>
+  <div class="btn" onclick="openDay(5)">Открыть день 5</div>
+  <div class="btn" onclick="openDay(6)">Открыть день 6</div>
+  <div class="btn" onclick="openDay(7)">Открыть день 7</div>
+</div>
+
 <p id="status">Авторизация…</p>
 <pre id="output"></pre>
 
@@ -70,15 +93,14 @@
   const tg = window.Telegram.WebApp;
   tg.ready();
 
-  // 🔐 Токен ТОЛЬКО в памяти
+  // JWT ТОЛЬКО В ПАМЯТИ
   window.APP_TOKEN = null;
+  window.ME = null;
 
-  // 🔁 fetch с авто-подстановкой токена
   function apiFetch(url, options = {}) {
     if (!window.APP_TOKEN) {
-      return Promise.reject("NO TOKEN IN MEMORY");
+      return Promise.reject("NO TOKEN");
     }
-
     return fetch(url, {
       ...options,
       headers: {
@@ -88,12 +110,12 @@
       }
     }).then(async r => {
       const data = await r.json();
-      if (!r.ok) throw JSON.stringify(data);
+      if (!r.ok) throw data;
       return data;
     });
   }
 
-  // 1️⃣ AUTH
+  // AUTH
   fetch("/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,25 +130,49 @@
       return;
     }
 
-    // ✅ сохраняем токен в памяти
     window.APP_TOKEN = data.token;
     document.getElementById("status").innerText = "Авторизация OK";
 
-    // 2️⃣ проверка /me
     return apiFetch("/me");
   })
   .then(me => {
     if (!me) return;
+
+    window.ME = me.user;
+
     document.getElementById("output").innerText =
       JSON.stringify(me, null, 2);
+
+    // показываем админку
+    if (me.user.is_admin === true) {
+      document.getElementById("adminPanel").style.display = "flex";
+    }
   })
   .catch(err => {
     document.getElementById("status").innerText = "Ошибка";
-    document.getElementById("output").innerText = err;
+    document.getElementById("output").innerText =
+      JSON.stringify(err, null, 2);
   });
 
   function openSection(name) {
     alert("Раздел: " + name + "\n(логика будет позже)");
+  }
+
+  function openDay(day) {
+    apiFetch("/admin/open-day", {
+      method: "POST",
+      body: JSON.stringify({ day })
+    })
+    .then(res => {
+      document.getElementById("output").innerText =
+        JSON.stringify(res, null, 2);
+      alert("День " + day + " открыт");
+    })
+    .catch(err => {
+      document.getElementById("output").innerText =
+        JSON.stringify(err, null, 2);
+      alert("Ошибка");
+    });
   }
 </script>
 
