@@ -35,8 +35,8 @@
     #status {
       margin-top: 16px;
       font-size: 14px;
-      opacity: 0.7;
       text-align: center;
+      opacity: 0.85;
     }
     pre {
       background: #111;
@@ -44,6 +44,9 @@
       border-radius: 6px;
       font-size: 12px;
       overflow-x: auto;
+      margin-top: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
   </style>
 </head>
@@ -60,25 +63,34 @@
   <div class="btn" onclick="openSection('settings')">⚙️ Настройки</div>
 </div>
 
-<p id="status">Авторизация...</p>
+<p id="status">Авторизация…</p>
 <pre id="output"></pre>
 
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready();
 
-  // 🔐 ГЛОБАЛЬНЫЙ ТОКЕН (ТОЛЬКО В ПАМЯТИ)
+  // 🔐 Токен ТОЛЬКО в памяти
   window.APP_TOKEN = null;
 
-  // 🔁 ОБЩИЙ FETCH С АВТО-ТОКЕНОМ
+  // 🔁 fetch с авто-подстановкой токена
   function apiFetch(url, options = {}) {
+    if (!window.APP_TOKEN) {
+      return Promise.reject("NO TOKEN IN MEMORY");
+    }
+
     return fetch(url, {
       ...options,
       headers: {
+        "Content-Type": "application/json",
         ...(options.headers || {}),
         Authorization: "Bearer " + window.APP_TOKEN
       }
-    }).then(r => r.json());
+    }).then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw JSON.stringify(data);
+      return data;
+    });
   }
 
   // 1️⃣ AUTH
@@ -91,23 +103,26 @@
   .then(data => {
     if (!data.ok || !data.token) {
       document.getElementById("status").innerText = "AUTH ERROR";
+      document.getElementById("output").innerText =
+        JSON.stringify(data, null, 2);
       return;
     }
 
-    // ✅ СОХРАНЯЕМ В ПАМЯТИ
+    // ✅ сохраняем токен в памяти
     window.APP_TOKEN = data.token;
     document.getElementById("status").innerText = "Авторизация OK";
 
-    // 2️⃣ ПРОВЕРКА /me (ВЫВОД НА ЭКРАН)
+    // 2️⃣ проверка /me
     return apiFetch("/me");
   })
   .then(me => {
+    if (!me) return;
     document.getElementById("output").innerText =
       JSON.stringify(me, null, 2);
   })
   .catch(err => {
     document.getElementById("status").innerText = "Ошибка";
-    document.getElementById("output").innerText = err.toString();
+    document.getElementById("output").innerText = err;
   });
 
   function openSection(name) {
