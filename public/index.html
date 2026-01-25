@@ -27,12 +27,15 @@
       cursor:pointer;
       user-select:none;
     }
+    .check.done {
+      opacity:0.6;
+      text-decoration:line-through;
+    }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
-
 <div class="btn" onclick="openTasks()">📋 Мои задания</div>
 <div id="output"></div>
 
@@ -41,8 +44,9 @@ const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
+let CURRENT_TASK = null;
 
-/* API */
+/* ===== API ===== */
 function api(url, options = {}) {
   return fetch(url, {
     ...options,
@@ -53,7 +57,7 @@ function api(url, options = {}) {
   }).then(r => r.json());
 }
 
-/* AUTH */
+/* ===== AUTH ===== */
 fetch("/auth", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -64,7 +68,7 @@ fetch("/auth", {
   TOKEN = d.token;
 });
 
-/* LOAD TASK */
+/* ===== LOAD TASK ===== */
 function openTasks() {
   api("/my-tasks").then(d => {
     if (!d.task) {
@@ -72,41 +76,59 @@ function openTasks() {
       return;
     }
 
-    let html = `
-      <div class="task">
-        <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
-        <h3>Миссия: «${d.task.mission}»</h3>
-        <p style="white-space:pre-line">${d.task.description}</p>
-        <h4>Чек‑лист</h4>
-    `;
+    CURRENT_TASK = d;
 
-    if (!d.checklist.length) {
-      html += "<p>Пунктов чек‑листа нет</p>";
-    }
+    renderTask();
+  });
+}
 
+/* ===== RENDER ===== */
+function renderTask() {
+  const d = CURRENT_TASK;
+
+  let html = `
+    <div class="task">
+      <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
+      <h3>Миссия: "${d.task.mission}"</h3>
+      <p>${d.task.description.replace(/\n/g, "<br>")}</p>
+      <h4>Чек‑лист</h4>
+  `;
+
+  if (d.checklist.length === 0) {
+    html += "<p>Пунктов чек‑листа нет</p>";
+  } else {
     d.checklist.forEach(i => {
       html += `
-        <div class="check"
-             onclick="toggleChecklist(event, '${i.id}', ${!i.done})">
+        <div
+          class="check ${i.done ? "done" : ""}"
+          onclick="toggleChecklist('${i.id}')"
+        >
           ${i.done ? "✅" : "⬜"} ${i.title}
         </div>
       `;
     });
+  }
 
-    html += "</div>";
-    output.innerHTML = html;
-  });
+  html += "</div>";
+  output.innerHTML = html;
 }
 
-/* TOGGLE CHECKLIST */
-function toggleChecklist(e, id, done) {
-  e.stopPropagation();
+/* ===== TOGGLE (МГНОВЕННО) ===== */
+function toggleChecklist(id) {
+  const item = CURRENT_TASK.checklist.find(i => i.id === id);
+  if (!item) return;
 
+  // 1️⃣ мгновенно меняем UI
+  item.done = !item.done;
+  renderTask();
+
+  // 2️⃣ сохраняем на сервер
   api("/checklist/toggle", {
     method: "POST",
-    body: JSON.stringify({ checklist_id: id, done })
-  }).then(() => {
-    openTasks(); // перерисовываем аккуратно
+    body: JSON.stringify({
+      checklist_id: id,
+      done: item.done
+    })
   });
 }
 </script>
