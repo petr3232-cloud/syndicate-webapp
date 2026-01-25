@@ -26,12 +26,20 @@
       margin:6px 0;
       cursor:pointer;
     }
+    pre {
+      background:#111;
+      padding:10px;
+      overflow:auto;
+      font-size:12px;
+    }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
+
 <div class="btn" onclick="openTasks()">📋 Мои задания</div>
+
 <div id="output"></div>
 
 <script>
@@ -40,38 +48,44 @@ tg.ready();
 
 let TOKEN = null;
 
-function api(url, options={}) {
+/* ===== API ===== */
+function api(url, options = {}) {
   return fetch(url, {
     ...options,
     headers: {
-      "Content-Type":"application/json",
-      Authorization:"Bearer " + TOKEN
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + TOKEN
     }
   }).then(r => r.json());
 }
 
-/* AUTH */
+/* ===== AUTH ===== */
 fetch("/auth", {
-  method:"POST",
-  headers:{ "Content-Type":"application/json" },
-  body:JSON.stringify({ initData: tg.initData })
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ initData: tg.initData })
 })
 .then(r => r.json())
 .then(d => {
   TOKEN = d.token;
+  console.log("TOKEN OK");
 });
 
-/* LOAD TASK */
+/* ===== LOAD TASK ===== */
 function openTasks() {
-  api("/my-tasks").then(d=>{
+  api("/my-tasks").then(d => {
     console.log("MY TASKS RESPONSE:", d);
 
-    let html = `<pre>${JSON.stringify(d, null, 2)}</pre>`;
-    output.innerHTML = html;
-  });
-}
+    // 🔴 ВРЕМЕННО: выводим ответ сервера КАК ЕСТЬ
+    output.innerHTML = `
+      <h3>RAW RESPONSE</h3>
+      <pre>${JSON.stringify(d, null, 2)}</pre>
+    `;
 
+    // ❗ если нет задания — дальше не рисуем
+    if (!d.task) return;
 
+    // 🟢 нормальный рендер
     let html = `
       <div class="task">
         <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
@@ -80,23 +94,29 @@ function openTasks() {
         <h4>Чек‑лист</h4>
     `;
 
-    d.checklist.forEach(i => {
-      html += `
-        <div class="check" onclick="toggle('${i.id}', ${!i.done})">
-          ${i.done ? "✅" : "⬜"} ${i.title}
-        </div>
-      `;
-    });
+    if (!d.checklist || d.checklist.length === 0) {
+      html += `<p>❌ Чек‑лист пуст</p>`;
+    } else {
+      d.checklist.forEach(i => {
+        html += `
+          <div class="check" onclick="toggle('${i.id}', ${!i.done})">
+            ${i.done ? "✅" : "⬜"} ${i.title}
+          </div>
+        `;
+      });
+    }
 
     html += "</div>";
-    output.innerHTML = html;
+
+    output.innerHTML += html;
   });
 }
 
+/* ===== TOGGLE ===== */
 function toggle(id, done) {
   api("/checklist/toggle", {
-    method:"POST",
-    body:JSON.stringify({ checklist_id:id, done })
+    method: "POST",
+    body: JSON.stringify({ checklist_id: id, done })
   }).then(openTasks);
 }
 </script>
