@@ -7,6 +7,8 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+console.log("🔥 SERVER BOOT");
+
 /* ===== SUPABASE ===== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -17,10 +19,7 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTH ===== */
-app.get("/health", (_, res) => res.send("OK"));
-
-/* ===== TELEGRAM AUTH CHECK ===== */
+/* ===== TELEGRAM AUTH ===== */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -54,11 +53,10 @@ function requireAuth(req, res, next) {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ error: "INVALID TOKEN" });
+    res.status(401).json({ error: "INVALID TOKEN" });
   }
 }
 
-/* ===== ADMIN ===== */
 async function requireAdmin(req, res, next) {
   const { telegram_id } = req.user;
 
@@ -83,8 +81,9 @@ app.get("/", (_, res) => {
 /* ===== AUTH ===== */
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
-  if (!initData) return res.status(400).send("NO INIT DATA");
-  if (!checkTelegramAuth(initData)) return res.status(403).send("FAKE USER");
+  if (!initData) return res.status(400).json({ error: "NO INIT DATA" });
+  if (!checkTelegramAuth(initData))
+    return res.status(403).json({ error: "FAKE USER" });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -129,36 +128,25 @@ app.get("/me", requireAuth, async (req, res) => {
 });
 
 /* ===== ADMIN: OPEN DAY ===== */
-app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
-  const { day } = req.body;
+app.post(
+  "/admin/open-day",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { day } = req.body;
 
-  const { data: task, error } = await supabase
-    .from("tasks")
-    .update({ is_active: true })
-    .eq("day", day)
-    .select("id")
-    .single();
+    const { data: task } = await supabase
+      .from("tasks")
+      .update({ is_active: true })
+      .eq("day", day)
+      .select()
+      .single();
 
-  if (error || !task) {
-    return res.status(404).json({ error: "TASK NOT FOUND" });
+    if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+
+    res.json({ ok: true });
   }
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id");
-
-  const rows = users.map(u => ({
-    user_id: u.id,
-    task_id: task.id,
-    status: "active"
-  }));
-
-  await supabase
-    .from("user_tasks")
-    .upsert(rows, { onConflict: "user_id,task_id" });
-
-  res.json({ ok: true, opened_day: day });
-});
+);
 
 /* ===== MY TASK + CHECKLIST ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
@@ -174,44 +162,34 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     .from("tasks")
     .select("*")
     .eq("is_active", true)
-    .order("day", { ascending: true })
-    .limit(1)
     .single();
 
-  if (!task) {
-    return res.json({ ok: true, task: null });
-  }
+  if (!task) return res.json({ ok: true, task: null });
 
-  const { data: checklist } = await supabase
+  const { data: items } = await supabase
     .from("task_checklist_items")
-    .select("*")
+    .select(`
+      id,
+      title,
+      user_checklist_items ( done )
+    `)
     .eq("task_id", task.id)
-    .order("order", { ascending: true });
-
-  const { data: userChecks } = await supabase
-    .from("user_checklist_items")
-    .select("checklist_item_id, is_done")
-    .eq("user_id", user.id);
-
-  const doneMap = {};
-  userChecks.forEach(i => {
-    doneMap[i.checklist_item_id] = i.is_done;
-  });
+    .eq("user_checklist_items.user_id", user.id);
 
   res.json({
     ok: true,
     task,
-    checklist: checklist.map(i => ({
+    checklist: items.map(i => ({
       id: i.id,
       title: i.title,
-      done: doneMap[i.id] === true
+      done: i.user_checklist_items?.[0]?.done === true
     }))
   });
 });
 
-/* ===== CHECKLIST TOGGLE ===== */
+/* ===== TOGGLE CHECKLIST ===== */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
-  const { checklist_item_id, done } = req.body;
+  const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
   const { data: user } = await supabase
@@ -223,15 +201,80 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
   await supabase.from("user_checklist_items").upsert(
     {
       user_id: user.id,
-      checklist_item_id,
-      is_done: done,
-      completed_at: done ? new Date().toISOString() : null
+      checklist_item_id: checklist_id,
+      done
     },
     { onConflict: "user_id,checklist_item_id" }
   );
 
   res.json({ ok: true });
 });
+
+/* ===== ADMIN CHECKLIST ===== */
+app.get(
+  "/admin/checklist/:day",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const day = Number(req.params.day);
+
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("day", day)
+      .single();
+
+    if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+
+    const { data } = await supabase
+      .from("task_checklist_items")
+      .select("*")
+      .eq("task_id", task.id)
+      .order("created_at");
+
+    res.json({ ok: true, items: data });
+  }
+);
+
+app.post(
+  "/admin/checklist",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { day, title } = req.body;
+
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("day", day)
+      .single();
+
+    const { data } = await supabase
+      .from("task_checklist_items")
+      .insert({
+        task_id: task.id,
+        title
+      })
+      .select()
+      .single();
+
+    res.json({ ok: true, item: data });
+  }
+);
+
+app.delete(
+  "/admin/checklist/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    await supabase
+      .from("task_checklist_items")
+      .delete()
+      .eq("id", req.params.id);
+
+    res.json({ ok: true });
+  }
+);
 
 /* ===== START ===== */
 app.listen(PORT, () => {
