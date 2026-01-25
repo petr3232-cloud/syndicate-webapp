@@ -6,33 +6,22 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
-      background: #0f0f0f;
-      color: #fff;
-      font-family: Arial, sans-serif;
-      padding: 16px;
+      background:#0f0f0f;
+      color:#fff;
+      font-family:Arial;
+      padding:16px;
     }
-    h1 { text-align: center; }
     .btn {
-      padding: 14px;
-      background: #1e1e1e;
-      border-radius: 8px;
-      margin: 6px 0;
-      cursor: pointer;
-      text-align: center;
+      padding:12px;
+      background:#1e1e1e;
+      margin:6px 0;
+      border-radius:8px;
+      cursor:pointer;
+      text-align:center;
     }
-    .check {
-      cursor: pointer;
-      margin: 6px 0;
-    }
-    .admin {
-      margin-top: 20px;
-      border-top: 1px solid #333;
-      padding-top: 10px;
-    }
-    #output {
-      white-space: pre-wrap;
-      margin-top: 12px;
-    }
+    .check { cursor:pointer; margin:6px 0; }
+    .admin { margin-top:20px; border-top:1px solid #333; padding-top:10px; }
+    input { width:100%; padding:8px; margin:6px 0; }
   </style>
 </head>
 <body>
@@ -43,89 +32,116 @@
 
 <div id="adminPanel" class="admin" style="display:none">
   <div class="btn" onclick="openDay(1)">Открыть день 1</div>
-  <div class="btn" onclick="openDay(2)">Открыть день 2</div>
+
+  <hr>
+
+  <div class="btn" onclick="loadChecklist(1)">⚙ Чек‑лист дня 1</div>
+  <input id="newItem" placeholder="Новый пункт">
+  <div class="btn" onclick="addItem(1)">➕ Добавить пункт</div>
+  <div id="adminChecklist"></div>
 </div>
 
 <div id="output"></div>
 
 <script>
-const tg = window.Telegram.WebApp;
+const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
-let ME = null;
 
-function api(url, options = {}) {
+function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + TOKEN
+      "Content-Type":"application/json",
+      Authorization:"Bearer " + TOKEN
     }
-  }).then(r => r.json());
+  }).then(r=>r.json());
 }
 
 /* AUTH */
 fetch("/auth", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ initData: tg.initData })
+  method:"POST",
+  headers:{ "Content-Type":"application/json" },
+  body:JSON.stringify({ initData: tg.initData })
 })
-.then(r => r.json())
-.then(d => {
+.then(r=>r.json())
+.then(d=>{
   TOKEN = d.token;
   return api("/me");
 })
-.then(me => {
-  ME = me.user;
-  if (ME.is_admin) {
-    document.getElementById("adminPanel").style.display = "block";
+.then(me=>{
+  if (me.user.is_admin) {
+    adminPanel.style.display = "block";
   }
 });
 
-/* TASKS */
+/* USER TASKS */
 function openTasks() {
-  api("/my-tasks").then(data => {
-    if (!data.task) {
+  api("/my-tasks").then(d=>{
+    if (!d.task) {
       output.innerText = "Нет активных заданий";
       return;
     }
 
-    let html = `
-🔥 ${data.task.title}
-
-${data.task.mission}
-
-`;
-
-    data.checklist.forEach(i => {
+    let html = `<h3>${d.task.title}</h3><p>${d.task.mission}</p>`;
+    d.checklist.forEach(i=>{
       html += `
-<div class="check" onclick="toggle('${i.id}', ${!i.done})">
-  ${i.done ? "✅" : "⬜"} ${i.title}
-</div>`;
+        <div class="check" onclick="toggle('${i.id}', ${!i.done})">
+          ${i.done ? "✅" : "⬜"} ${i.title}
+        </div>`;
     });
-
     output.innerHTML = html;
   });
 }
 
 function toggle(id, done) {
   api("/checklist/toggle", {
-    method: "POST",
-    body: JSON.stringify({
-      checklist_item_id: id,
-      done
-    })
+    method:"POST",
+    body:JSON.stringify({ checklist_id:id, done })
   }).then(openTasks);
 }
 
+/* ADMIN */
 function openDay(day) {
   api("/admin/open-day", {
-    method: "POST",
-    body: JSON.stringify({ day })
-  }).then(() => alert("День открыт"));
+    method:"POST",
+    body:JSON.stringify({ day })
+  }).then(()=>alert("День открыт"));
+}
+
+function loadChecklist(day) {
+  api(`/admin/checklist/${day}`).then(d=>{
+    let html="";
+    d.items.forEach(i=>{
+      html+=`
+        <div>
+          • ${i.title}
+          <span style="color:red;cursor:pointer"
+            onclick="deleteItem('${i.id}',${day})"> ✖</span>
+        </div>`;
+    });
+    adminChecklist.innerHTML = html;
+  });
+}
+
+function addItem(day) {
+  const title = newItem.value.trim();
+  if (!title) return;
+
+  api("/admin/checklist", {
+    method:"POST",
+    body:JSON.stringify({ day, title })
+  }).then(()=>{
+    newItem.value="";
+    loadChecklist(day);
+  });
+}
+
+function deleteItem(id, day) {
+  api(`/admin/checklist/${id}`, { method:"DELETE" })
+    .then(()=>loadChecklist(day));
 }
 </script>
-
 </body>
 </html>
