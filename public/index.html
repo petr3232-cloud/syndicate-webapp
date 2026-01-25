@@ -18,27 +18,22 @@
       border-radius:8px;
       cursor:pointer;
       text-align:center;
-      opacity:0.5;
+      opacity:0.4;
       pointer-events:none;
     }
     .btn.active {
       opacity:1;
       pointer-events:auto;
     }
-    .task {
-      margin-top:16px;
-    }
-    .check {
-      margin:6px 0;
-      cursor:pointer;
-    }
+    .task { margin-top:16px; }
+    .check { margin:6px 0; cursor:pointer; }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
 
-<div id="tasksBtn" class="btn">📋 Мои задания</div>
+<div id="tasksBtn" class="btn" onclick="openTasks()">📋 Мои задания</div>
 <div id="output"></div>
 
 <script>
@@ -47,9 +42,8 @@ tg.ready();
 
 let TOKEN = null;
 const tasksBtn = document.getElementById("tasksBtn");
-const output = document.getElementById("output");
 
-function api(url, options = {}) {
+function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
@@ -59,7 +53,7 @@ function api(url, options = {}) {
   }).then(r => r.json());
 }
 
-/* ===== AUTH (ЖДЁМ ТОКЕН) ===== */
+/* AUTH */
 fetch("/auth", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -68,23 +62,17 @@ fetch("/auth", {
 .then(r => r.json())
 .then(d => {
   if (!d.token) {
-    output.innerHTML = "<p>❌ Ошибка авторизации</p>";
+    output.innerHTML = "<p>Ошибка авторизации</p>";
     return;
   }
   TOKEN = d.token;
-  tasksBtn.classList.add("active");
-  tasksBtn.onclick = openTasks;
+  tasksBtn.classList.add("active"); // 🔥 КНОПКА АКТИВНА ТОЛЬКО ТЕПЕРЬ
 });
 
-/* ===== LOAD TASK ===== */
+/* LOAD TASK */
 function openTasks() {
   api("/my-tasks").then(d => {
-    console.log("MY TASKS RESPONSE:", d);
-
-    if (d.error) {
-      output.innerHTML = `<pre>${JSON.stringify(d, null, 2)}</pre>`;
-      return;
-    }
+    console.log("MY TASKS:", d);
 
     if (!d.task) {
       output.innerHTML = "<p>Нет активных заданий</p>";
@@ -99,13 +87,17 @@ function openTasks() {
         <h4>Чек‑лист</h4>
     `;
 
-    d.checklist.forEach(i => {
-      html += `
-        <div class="check" onclick="toggle('${i.id}', ${!i.done})">
-          ${i.done ? "✅" : "⬜"} ${i.title}
-        </div>
-      `;
-    });
+    if (!d.checklist || d.checklist.length === 0) {
+      html += "<p>Пунктов чек‑листа нет</p>";
+    } else {
+      d.checklist.forEach(i => {
+        html += `
+          <div class="check" onclick="toggle('${i.id}', ${!i.done})">
+            ${i.done ? "✅" : "⬜"} ${i.title}
+          </div>
+        `;
+      });
+    }
 
     html += "</div>";
     output.innerHTML = html;
@@ -119,6 +111,5 @@ function toggle(id, done) {
   }).then(openTasks);
 }
 </script>
-
 </body>
 </html>
