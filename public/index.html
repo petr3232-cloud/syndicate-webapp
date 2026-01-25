@@ -18,22 +18,32 @@
       border-radius:8px;
       cursor:pointer;
       text-align:center;
-      opacity:0.4;
-      pointer-events:none;
+      opacity:0.5;
     }
     .btn.active {
       opacity:1;
-      pointer-events:auto;
     }
-    .task { margin-top:16px; }
-    .check { margin:6px 0; cursor:pointer; }
+    .task {
+      margin-top:16px;
+    }
+    .check {
+      margin:6px 0;
+      cursor:pointer;
+    }
+    pre {
+      background:#111;
+      padding:10px;
+      overflow:auto;
+      font-size:12px;
+    }
   </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
 
-<div id="tasksBtn" class="btn" onclick="openTasks()">📋 Мои задания</div>
+<div id="tasksBtn" class="btn">📋 Мои задания</div>
+
 <div id="output"></div>
 
 <script>
@@ -41,9 +51,10 @@ const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
-const tasksBtn = document.getElementById("tasksBtn");
+const btn = document.getElementById("tasksBtn");
+const output = document.getElementById("output");
 
-function api(url, options={}) {
+function api(url, options = {}) {
   return fetch(url, {
     ...options,
     headers: {
@@ -53,7 +64,7 @@ function api(url, options={}) {
   }).then(r => r.json());
 }
 
-/* AUTH */
+/* ===== AUTH ===== */
 fetch("/auth", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -62,33 +73,45 @@ fetch("/auth", {
 .then(r => r.json())
 .then(d => {
   if (!d.token) {
-    output.innerHTML = "<p>Ошибка авторизации</p>";
+    output.innerHTML = "<p>❌ Токен не получен</p>";
     return;
   }
   TOKEN = d.token;
-  tasksBtn.classList.add("active"); // 🔥 КНОПКА АКТИВНА ТОЛЬКО ТЕПЕРЬ
+  btn.classList.add("active");
+  btn.onclick = openTasks;
+})
+.catch(err => {
+  output.innerHTML = "<p>❌ Ошибка авторизации</p>";
 });
 
-/* LOAD TASK */
+/* ===== LOAD TASK ===== */
 function openTasks() {
+  output.innerHTML = "<p>⏳ Загружаю задание...</p>";
+
   api("/my-tasks").then(d => {
-    console.log("MY TASKS:", d);
+    console.log("MY TASKS RESPONSE:", d);
+
+    // 🔎 всегда показываем RAW ответ
+    let html = `
+      <h3>RAW RESPONSE</h3>
+      <pre>${JSON.stringify(d, null, 2)}</pre>
+    `;
 
     if (!d.task) {
-      output.innerHTML = "<p>Нет активных заданий</p>";
+      output.innerHTML = html + "<p>❌ Нет активного задания</p>";
       return;
     }
 
-    let html = `
+    html += `
       <div class="task">
         <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
         <h3>Миссия: "${d.task.mission}"</h3>
-        <p>${d.task.description}</p>
+        <p>${d.task.description || ""}</p>
         <h4>Чек‑лист</h4>
     `;
 
     if (!d.checklist || d.checklist.length === 0) {
-      html += "<p>Пунктов чек‑листа нет</p>";
+      html += "<p>⚠️ Пунктов чек‑листа нет</p>";
     } else {
       d.checklist.forEach(i => {
         html += `
@@ -104,6 +127,7 @@ function openTasks() {
   });
 }
 
+/* ===== TOGGLE ===== */
 function toggle(id, done) {
   api("/checklist/toggle", {
     method: "POST",
@@ -111,5 +135,6 @@ function toggle(id, done) {
   }).then(openTasks);
 }
 </script>
+
 </body>
 </html>
