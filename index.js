@@ -53,7 +53,7 @@ function requireAuth(req, res, next) {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    res.status(401).json({ error: "INVALID TOKEN" });
+    return res.status(401).json({ error: "INVALID TOKEN" });
   }
 }
 
@@ -128,25 +128,20 @@ app.get("/me", requireAuth, async (req, res) => {
 });
 
 /* ===== ADMIN: OPEN DAY ===== */
-app.post(
-  "/admin/open-day",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { day } = req.body;
+app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
+  const { day } = req.body;
 
-    const { data: task } = await supabase
-      .from("tasks")
-      .update({ is_active: true })
-      .eq("day", day)
-      .select()
-      .single();
+  const { data: task } = await supabase
+    .from("tasks")
+    .update({ is_active: true })
+    .eq("day", day)
+    .select()
+    .single();
 
-    if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
 
-    res.json({ ok: true });
-  }
-);
+  res.json({ ok: true });
+});
 
 /* ===== MY TASK + CHECKLIST ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
@@ -164,7 +159,9 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     .eq("is_active", true)
     .single();
 
-  if (!task) return res.json({ ok: true, task: null });
+  if (!task) {
+    return res.json({ ok: true, task: null, checklist: [] });
+  }
 
   const { data: items } = await supabase
     .from("task_checklist_items")
@@ -179,7 +176,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
   res.json({
     ok: true,
     task,
-    checklist: items.map(i => ({
+    checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
       done: i.user_checklist_items?.[0]?.done === true
@@ -232,7 +229,7 @@ app.get(
       .eq("task_id", task.id)
       .order("created_at");
 
-    res.json({ ok: true, items: data });
+    res.json({ ok: true, items: data || [] });
   }
 );
 
