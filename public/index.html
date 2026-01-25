@@ -54,7 +54,6 @@
       padding: 10px;
       border-radius: 6px;
       font-size: 12px;
-      overflow-x: auto;
       margin-top: 12px;
       white-space: pre-wrap;
       word-break: break-word;
@@ -93,13 +92,12 @@
   const tg = window.Telegram.WebApp;
   tg.ready();
 
-  // JWT ТОЛЬКО В ПАМЯТИ
   window.APP_TOKEN = null;
   window.ME = null;
 
   function apiFetch(url, options = {}) {
     if (!window.APP_TOKEN) {
-      return Promise.reject("NO TOKEN");
+      return Promise.reject({ error: "NO TOKEN" });
     }
     return fetch(url, {
       ...options,
@@ -132,18 +130,15 @@
 
     window.APP_TOKEN = data.token;
     document.getElementById("status").innerText = "Авторизация OK";
-
     return apiFetch("/me");
   })
   .then(me => {
     if (!me) return;
 
     window.ME = me.user;
-
     document.getElementById("output").innerText =
       JSON.stringify(me, null, 2);
 
-    // показываем админку
     if (me.user.is_admin === true) {
       document.getElementById("adminPanel").style.display = "flex";
     }
@@ -155,7 +150,7 @@
   });
 
   function openSection(name) {
-    alert("Раздел: " + name + "\n(логика будет позже)");
+    alert("Раздел: " + name + "\n(дальше сделаем)");
   }
 
   function openDay(day) {
