@@ -19,6 +19,9 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
+/* ===== HEALTHCHECK (ОБЯЗАТЕЛЬНО) ===== */
+app.get("/health", (_, res) => res.send("OK"));
+
 /* ===== TELEGRAM AUTH ===== */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
@@ -138,7 +141,9 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
     .select()
     .single();
 
-  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (!task) {
+    return res.status(404).json({ error: "TASK NOT FOUND" });
+  }
 
   res.json({ ok: true });
 });
@@ -208,70 +213,52 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
 });
 
 /* ===== ADMIN CHECKLIST ===== */
-app.get(
-  "/admin/checklist/:day",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const day = Number(req.params.day);
+app.get("/admin/checklist/:day", requireAuth, requireAdmin, async (req, res) => {
+  const day = Number(req.params.day);
 
-    const { data: task } = await supabase
-      .from("tasks")
-      .select("id")
-      .eq("day", day)
-      .single();
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("day", day)
+    .single();
 
-    if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
+  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
 
-    const { data } = await supabase
-      .from("task_checklist_items")
-      .select("*")
-      .eq("task_id", task.id)
-      .order("created_at");
+  const { data } = await supabase
+    .from("task_checklist_items")
+    .select("*")
+    .eq("task_id", task.id)
+    .order("created_at");
 
-    res.json({ ok: true, items: data || [] });
-  }
-);
+  res.json({ ok: true, items: data || [] });
+});
 
-app.post(
-  "/admin/checklist",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { day, title } = req.body;
+app.post("/admin/checklist", requireAuth, requireAdmin, async (req, res) => {
+  const { day, title } = req.body;
 
-    const { data: task } = await supabase
-      .from("tasks")
-      .select("id")
-      .eq("day", day)
-      .single();
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("day", day)
+    .single();
 
-    const { data } = await supabase
-      .from("task_checklist_items")
-      .insert({
-        task_id: task.id,
-        title
-      })
-      .select()
-      .single();
+  const { data } = await supabase
+    .from("task_checklist_items")
+    .insert({ task_id: task.id, title })
+    .select()
+    .single();
 
-    res.json({ ok: true, item: data });
-  }
-);
+  res.json({ ok: true, item: data });
+});
 
-app.delete(
-  "/admin/checklist/:id",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    await supabase
-      .from("task_checklist_items")
-      .delete()
-      .eq("id", req.params.id);
+app.delete("/admin/checklist/:id", requireAuth, requireAdmin, async (req, res) => {
+  await supabase
+    .from("task_checklist_items")
+    .delete()
+    .eq("id", req.params.id);
 
-    res.json({ ok: true });
-  }
-);
+  res.json({ ok: true });
+});
 
 /* ===== START ===== */
 app.listen(PORT, () => {
