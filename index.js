@@ -69,13 +69,13 @@ function requireAuth(req, res, next) {
 async function requireAdmin(req, res, next) {
   const { telegram_id } = req.user;
 
-  const { data: user } = await supabase
+  const { data: user, error } = await supabase
     .from("users")
     .select("is_admin")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user || !user.is_admin) {
+  if (error || !user || user.is_admin !== true) {
     return res.status(403).json({ error: "NOT ADMIN" });
   }
 
@@ -97,7 +97,7 @@ app.post("/auth", async (req, res) => {
   const tgUser = JSON.parse(params.get("user"));
   const telegramId = String(tgUser.id);
 
-  let { data: user } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegramId)
@@ -126,53 +126,60 @@ app.post("/auth", async (req, res) => {
 app.get("/me", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegram_id)
     .single();
 
+  if (error) return res.status(500).json({ error: "DB ERROR" });
+
   res.json({ ok: true, user: data });
 });
 
-/* ======================================================
-   ===== ADMIN: ОТКРЫТЬ ЗАДАНИЕ ДНЯ =====
-   POST /admin/open-day
-   body: { "day": 1 }
-====================================================== */
+/* ===== ADMIN: OPEN DAY ===== */
 app.post(
   "/admin/open-day",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     const { day } = req.body;
-    if (!day) return res.status(400).json({ error: "NO DAY" });
+
+    if (!day || day < 1 || day > 7) {
+      return res.status(400).json({ error: "INVALID DAY" });
+    }
 
     // активируем задание
-    await supabase
+    const { data: task, error: taskError } = await supabase
       .from("tasks")
       .update({ is_active: true })
-      .eq("day", day);
-
-    // получаем задание
-    const { data: task } = await supabase
-      .from("tasks")
-      .select("id")
       .eq("day", day)
+      .select("id")
       .single();
 
-    // всем пользователям создаём user_tasks
+    if (taskError || !task) {
+      return res.status(404).json({ error: "TASK NOT FOUND" });
+    }
+
+    // все пользователи
     const { data: users } = await supabase
       .from("users")
       .select("id");
 
+    if (!users || users.length === 0) {
+      return res.json({ ok: true, opened_day: day, users: 0 });
+    }
+
+    // создаём user_tasks (без дублей)
     const rows = users.map(u => ({
       user_id: u.id,
       task_id: task.id,
       status: "active"
     }));
 
-    await supabase.from("user_tasks").insert(rows);
+    await supabase
+      .from("user_tasks")
+      .upsert(rows, { onConflict: "user_id,task_id" });
 
     res.json({ ok: true, opened_day: day });
   }
