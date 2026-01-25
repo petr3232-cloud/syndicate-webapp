@@ -27,7 +27,7 @@ app.use(express.static("public"));
 /* ===== HEALTH ===== */
 app.get("/health", (_, res) => res.send("OK"));
 
-/* ===== TELEGRAM CHECK ===== */
+/* ===== TELEGRAM AUTH CHECK ===== */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -90,27 +90,30 @@ app.get("/", (_, res) => {
 /* ===== AUTH ===== */
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
-  if (!initData) return res.status(400).send("NO INIT DATA");
-  if (!checkTelegramAuth(initData)) return res.status(403).send("FAKE USER");
+  if (!initData) return res.status(400).json({ error: "NO INIT DATA" });
+  if (!checkTelegramAuth(initData))
+    return res.status(403).json({ error: "FAKE USER" });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
   const telegramId = String(tgUser.id);
 
-  const { data: user } = await supabase
+  let { data: user } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegramId)
     .single();
 
   if (!user) {
-    await supabase.from("users").insert({
+    const insert = await supabase.from("users").insert({
       telegram_id: telegramId,
       username: tgUser.username ?? null,
       points: 0,
       level: "Новичок",
       is_admin: false
-    });
+    }).select().single();
+
+    user = insert.data;
   }
 
   const token = jwt.sign(
@@ -149,7 +152,6 @@ app.post(
       return res.status(400).json({ error: "INVALID DAY" });
     }
 
-    // активируем задание
     const { data: task, error: taskError } = await supabase
       .from("tasks")
       .update({ is_active: true })
@@ -161,7 +163,6 @@ app.post(
       return res.status(404).json({ error: "TASK NOT FOUND" });
     }
 
-    // все пользователи
     const { data: users } = await supabase
       .from("users")
       .select("id");
@@ -170,7 +171,6 @@ app.post(
       return res.json({ ok: true, opened_day: day, users: 0 });
     }
 
-    // создаём user_tasks (без дублей)
     const rows = users.map(u => ({
       user_id: u.id,
       task_id: task.id,
