@@ -9,10 +9,6 @@ const PORT = process.env.PORT || 8080;
 
 /* ===== BOOT ===== */
 console.log("🔥 SERVER BOOT");
-console.log("SUPABASE_URL:", !!process.env.SUPABASE_URL);
-console.log("SUPABASE_SECRET_KEY:", !!process.env.SUPABASE_SECRET_KEY);
-console.log("BOT_TOKEN:", !!process.env.BOT_TOKEN);
-console.log("JWT_SECRET:", !!process.env.JWT_SECRET);
 
 /* ===== SUPABASE ===== */
 const supabase = createClient(
@@ -65,20 +61,19 @@ function requireAuth(req, res, next) {
   }
 }
 
-/* ===== ADMIN CHECK ===== */
+/* ===== ADMIN ===== */
 async function requireAdmin(req, res, next) {
   const { telegram_id } = req.user;
 
-  const { data: user, error } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("is_admin")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (error || !user || user.is_admin !== true) {
+  if (!user || user.is_admin !== true) {
     return res.status(403).json({ error: "NOT ADMIN" });
   }
-
   next();
 }
 
@@ -90,30 +85,27 @@ app.get("/", (_, res) => {
 /* ===== AUTH ===== */
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: "NO INIT DATA" });
-  if (!checkTelegramAuth(initData))
-    return res.status(403).json({ error: "FAKE USER" });
+  if (!initData) return res.status(400).send("NO INIT DATA");
+  if (!checkTelegramAuth(initData)) return res.status(403).send("FAKE USER");
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
   const telegramId = String(tgUser.id);
 
-  let { data: user } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegramId)
     .single();
 
   if (!user) {
-    const insert = await supabase.from("users").insert({
+    await supabase.from("users").insert({
       telegram_id: telegramId,
       username: tgUser.username ?? null,
       points: 0,
       level: "Новичок",
       is_admin: false
-    }).select().single();
-
-    user = insert.data;
+    });
   }
 
   const token = jwt.sign(
@@ -129,61 +121,104 @@ app.post("/auth", async (req, res) => {
 app.get("/me", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("users")
     .select("*")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (error) return res.status(500).json({ error: "DB ERROR" });
-
   res.json({ ok: true, user: data });
 });
 
 /* ===== ADMIN: OPEN DAY ===== */
-app.post(
-  "/admin/open-day",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { day } = req.body;
+app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
+  const { day } = req.body;
 
-    if (!day || day < 1 || day > 7) {
-      return res.status(400).json({ error: "INVALID DAY" });
-    }
+  const { data: task } = await supabase
+    .from("tasks")
+    .update({ is_active: true })
+    .eq("day", day)
+    .select("*")
+    .single();
 
-    const { data: task, error: taskError } = await supabase
-      .from("tasks")
-      .update({ is_active: true })
-      .eq("day", day)
-      .select("id")
-      .single();
+  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
 
-    if (taskError || !task) {
-      return res.status(404).json({ error: "TASK NOT FOUND" });
-    }
+  const { data: users } = await supabase.from("users").select("id");
 
-    const { data: users } = await supabase
-      .from("users")
-      .select("id");
+  const rows = users.map(u => ({
+    user_id: u.id,
+    task_id: task.id,
+    status: "active"
+  }));
 
-    if (!users || users.length === 0) {
-      return res.json({ ok: true, opened_day: day, users: 0 });
-    }
+  await supabase
+    .from("user_tasks")
+    .upsert(rows, { onConflict: "user_id,task_id" });
 
-    const rows = users.map(u => ({
-      user_id: u.id,
-      task_id: task.id,
-      status: "active"
-    }));
+  res.json({ ok: true, opened_day: day });
+});
 
-    await supabase
-      .from("user_tasks")
-      .upsert(rows, { onConflict: "user_id,task_id" });
+/* ===== MY TASK + CHECKLIST ===== */
+app.get("/my-tasks", requireAuth, async (req, res) => {
+  const { telegram_id } = req.user;
 
-    res.json({ ok: true, opened_day: day });
-  }
-);
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("is_active", true)
+    .single();
+
+  if (!task) return res.json({ ok: true, task: null });
+
+  const { data: checklist } = await supabase
+    .from("task_checklist")
+    .select(`
+      id,
+      title,
+      user_checklist ( done )
+    `)
+    .eq("task_id", task.id)
+    .eq("user_checklist.user_id", user.id);
+
+  res.json({
+    ok: true,
+    task,
+    checklist: checklist.map(i => ({
+      id: i.id,
+      title: i.title,
+      done: i.user_checklist?.[0]?.done === true
+    }))
+  });
+});
+
+/* ===== CHECKLIST TOGGLE ===== */
+app.post("/checklist/toggle", requireAuth, async (req, res) => {
+  const { checklist_id, done } = req.body;
+  const { telegram_id } = req.user;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  await supabase.from("user_checklist").upsert(
+    {
+      user_id: user.id,
+      checklist_id,
+      done
+    },
+    { onConflict: "user_id,checklist_id" }
+  );
+
+  res.json({ ok: true });
+});
 
 /* ===== START ===== */
 app.listen(PORT, () => {
