@@ -19,7 +19,7 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTHCHECK (ОБЯЗАТЕЛЬНО) ===== */
+/* ===== HEALTHCHECK ===== */
 app.get("/health", (_, res) => res.send("OK"));
 
 /* ===== TELEGRAM AUTH ===== */
@@ -149,8 +149,13 @@ app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
 });
 
 /* ===== MY TASK + CHECKLIST ===== */
+/*
+  /my-tasks           -> активный день
+  /my-tasks?day=1     -> конкретный день
+*/
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
+  const day = req.query.day ? Number(req.query.day) : null;
 
   const { data: user } = await supabase
     .from("users")
@@ -158,11 +163,19 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("*")
-    .eq("is_active", true)
-    .single();
+  if (!user) {
+    return res.json({ ok: true, task: null, checklist: [] });
+  }
+
+  let taskQuery = supabase.from("tasks").select("*");
+
+  if (day !== null) {
+    taskQuery = taskQuery.eq("day", day);
+  } else {
+    taskQuery = taskQuery.eq("is_active", true);
+  }
+
+  const { data: task } = await taskQuery.single();
 
   if (!task) {
     return res.json({ ok: true, task: null, checklist: [] });
@@ -180,7 +193,12 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
 
   res.json({
     ok: true,
-    task,
+    task: {
+      id: task.id,
+      day: task.day,
+      title: task.title,
+      mission: task.mission
+    },
     checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
@@ -199,6 +217,8 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
+
+  if (!user) return res.json({ ok: true });
 
   await supabase.from("user_checklist_items").upsert(
     {
@@ -241,6 +261,8 @@ app.post("/admin/checklist", requireAuth, requireAdmin, async (req, res) => {
     .select("id")
     .eq("day", day)
     .single();
+
+  if (!task) return res.status(404).json({ error: "TASK NOT FOUND" });
 
   const { data } = await supabase
     .from("task_checklist_items")
