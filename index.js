@@ -60,21 +60,6 @@ function requireAuth(req, res, next) {
   }
 }
 
-async function requireAdmin(req, res, next) {
-  const { telegram_id } = req.user;
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("is_admin")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  if (!user || user.is_admin !== true) {
-    return res.status(403).json({ error: "NOT ADMIN" });
-  }
-  next();
-}
-
 /* ===== ROUTES ===== */
 app.get("/", (_, res) => {
   res.sendFile(path.resolve("public/index.html"));
@@ -116,44 +101,10 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ===== ME ===== */
-app.get("/me", requireAuth, async (req, res) => {
-  const { telegram_id } = req.user;
-
-  const { data } = await supabase
-    .from("users")
-    .select("*")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  res.json({ ok: true, user: data });
-});
-
-/* ===== ADMIN: OPEN DAY ===== */
-app.post("/admin/open-day", requireAuth, requireAdmin, async (req, res) => {
-  const { day } = req.body;
-
-  const { data: task } = await supabase
-    .from("tasks")
-    .update({ is_active: true })
-    .eq("day", day)
-    .select()
-    .single();
-
-  if (!task) {
-    return res.status(404).json({ error: "TASK NOT FOUND" });
-  }
-
-  res.json({ ok: true });
-});
-
-/* ======================================================
-   ===== MY TASK + CHECKLIST (КЛЮЧЕВОЙ ФИКС) =====
-   ====================================================== */
+/* ===== MY TASK + CHECKLIST (100% FIX) ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
-  /* 1. Пользователь */
   const { data: user } = await supabase
     .from("users")
     .select("id")
@@ -164,7 +115,6 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
-  /* 2. Активное задание */
   const { data: task } = await supabase
     .from("tasks")
     .select("*")
@@ -175,30 +125,29 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
-  /* 3. ВСЕ пункты чек-листа (LEFT JOIN!) */
+  // 1️⃣ ВСЕ пункты чек-листа
   const { data: items } = await supabase
     .from("task_checklist_items")
-    .select(`
-      id,
-      title,
-      user_checklist_items!left (
-        user_id,
-        done
-      )
-    `)
+    .select("id, title")
     .eq("task_id", task.id);
 
-  const checklist = (items || []).map(item => {
-    const row = item.user_checklist_items?.find(
-      r => r.user_id === user.id
-    );
+  // 2️⃣ Отметки пользователя
+  const { data: userMarks } = await supabase
+    .from("user_checklist_items")
+    .select("checklist_item_id, done")
+    .eq("user_id", user.id);
 
-    return {
-      id: item.id,
-      title: item.title,
-      done: row ? row.done : false
-    };
+  const doneMap = {};
+  (userMarks || []).forEach(i => {
+    doneMap[i.checklist_item_id] = i.done;
   });
+
+  // 3️⃣ Склейка
+  const checklist = (items || []).map(i => ({
+    id: i.id,
+    title: i.title,
+    done: doneMap[i.id] === true
+  }));
 
   res.json({
     ok: true,
@@ -207,7 +156,7 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
       day: task.day,
       title: task.title,
       mission: task.mission,
-      description: task.description || ""
+      description: task.description ?? ""
     },
     checklist
   });
