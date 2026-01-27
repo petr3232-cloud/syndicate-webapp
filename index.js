@@ -101,7 +101,7 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ===== MY TASK + CHECKLIST (100% FIX) ===== */
+/* ===== МОЁ АКТИВНОЕ ЗАДАНИЕ + ЧЕКЛИСТ ===== */
 app.get("/my-tasks", requireAuth, async (req, res) => {
   const { telegram_id } = req.user;
 
@@ -125,21 +125,21 @@ app.get("/my-tasks", requireAuth, async (req, res) => {
     return res.json({ ok: true, task: null, checklist: [] });
   }
 
-  // 1️⃣ ВСЕ пункты чек-листа
+  // 1️⃣ Все пункты чек-листа задания
   const { data: items } = await supabase
     .from("task_checklist_items")
     .select("id, title")
     .eq("task_id", task.id);
 
   // 2️⃣ Отметки пользователя
-  const { data: userMarks } = await supabase
+  const { data: marks } = await supabase
     .from("user_checklist_items")
     .select("checklist_item_id, done")
     .eq("user_id", user.id);
 
   const doneMap = {};
-  (userMarks || []).forEach(i => {
-    doneMap[i.checklist_item_id] = i.done;
+  (marks || []).forEach(m => {
+    doneMap[m.checklist_item_id] = m.done;
   });
 
   // 3️⃣ Склейка
