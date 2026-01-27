@@ -1,44 +1,22 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>SYNDICATE</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    body {
-      background:#0f0f0f;
-      color:#fff;
-      font-family:Arial, sans-serif;
-      padding:16px;
-    }
-    h1,h2,h3,h4 { margin:8px 0; }
-    .btn {
-      padding:14px;
-      background:#1e1e1e;
-      margin:10px 0;
-      border-radius:10px;
-      cursor:pointer;
-      text-align:center;
-    }
-    .task { margin-top:16px; }
-    .check {
-      margin:8px 0;
-      padding:8px;
-      border-radius:6px;
-      cursor:pointer;
-      user-select:none;
-    }
-    .check.done {
-      opacity:0.6;
-      text-decoration:line-through;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>SYNDICATE</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+body { background:#0f0f0f; color:#fff; font-family:Arial; padding:16px }
+.btn { background:#1e1e1e; padding:12px; margin:6px 0; border-radius:8px; cursor:pointer }
+.day { display:inline-block; margin:4px; padding:8px 12px; background:#222; border-radius:6px; cursor:pointer }
+.check { margin:6px 0; cursor:pointer }
+.check.done { opacity:.6; text-decoration:line-through }
+</style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
-<div class="btn" onclick="openTasks()">📋 Мои задания</div>
-<div id="output"></div>
+<div id="days"></div>
+<div id="content"></div>
 
 <script>
 const tg = Telegram.WebApp;
@@ -47,81 +25,63 @@ tg.ready();
 let TOKEN = null;
 let STATE = null;
 
-/* ===== API ===== */
-function api(url, options = {}) {
+function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + TOKEN
+      "Content-Type":"application/json",
+      Authorization:"Bearer "+TOKEN
     }
-  }).then(r => r.json());
+  }).then(r=>r.json());
 }
 
-/* ===== AUTH ===== */
+/* AUTH */
 fetch("/auth", {
   method:"POST",
   headers:{ "Content-Type":"application/json" },
   body: JSON.stringify({ initData: tg.initData })
 })
-.then(r => r.json())
-.then(d => TOKEN = d.token);
+.then(r=>r.json())
+.then(d => {
+  TOKEN = d.token;
+  loadDays();
+});
 
-/* ===== LOAD TASK ===== */
-function openTasks() {
-  api("/my-tasks").then(d => {
-    if (!d.ok || !d.task) {
-      output.innerHTML = "<p>Нет активных заданий</p>";
-      return;
-    }
+/* DAYS */
+function loadDays() {
+  api("/days").then(d => {
+    days.innerHTML = d.days.map(day =>
+      `<span class="day" onclick="openDay(${day})">День ${day}</span>`
+    ).join("");
+  });
+}
+
+/* TASK */
+function openDay(day) {
+  api("/task/"+day).then(d => {
     STATE = d;
     render();
   });
 }
 
-/* ===== RENDER ===== */
 function render() {
   const { task, checklist } = STATE;
-
-  let html = `
-    <div class="task">
-      <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
-      <h3>Миссия: «${task.mission}»</h3>
-      <p>${task.description.replace(/\n/g,"<br>")}</p>
-      <h4>Чек‑лист</h4>
-  `;
-
-  if (!checklist.length) {
-    html += "<p>Пунктов чек‑листа нет</p>";
-  } else {
-    checklist.forEach(i => {
-      html += `
-        <div class="check ${i.done ? "done" : ""}"
-             onclick="toggleItem('${i.id}')">
-          ${i.done ? "✅" : "⬜"} ${i.title}
-        </div>
-      `;
-    });
-  }
-
-  html += "</div>";
-  output.innerHTML = html;
+  let html = `<h2>День ${task.day} — ${task.title}</h2>
+  <p>${task.description.replace(/\n/g,"<br>")}</p><h3>Чек‑лист</h3>`;
+  checklist.forEach(i => {
+    html += `<div class="check ${i.done?"done":""}"
+      onclick="toggle('${i.id}')">${i.done?"✅":"⬜"} ${i.title}</div>`;
+  });
+  content.innerHTML = html;
 }
 
-/* ===== TOGGLE ===== */
-function toggleItem(id) {
-  const item = STATE.checklist.find(i => i.id === id);
-  if (!item) return;
-
+function toggle(id) {
+  const item = STATE.checklist.find(i=>i.id===id);
   item.done = !item.done;
   render();
-
   api("/checklist/toggle", {
     method:"POST",
-    body: JSON.stringify({
-      checklist_id: id,
-      done: item.done
-    })
+    body: JSON.stringify({ checklist_id:id, done:item.done })
   });
 }
 </script>
