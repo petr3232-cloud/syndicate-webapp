@@ -8,28 +8,28 @@
     body {
       background:#0f0f0f;
       color:#fff;
-      font-family:Arial;
+      font-family:Arial, sans-serif;
       padding:16px;
     }
+    h1, h2, h3, h4 { margin: 8px 0; }
     .btn {
-      padding:12px;
+      padding:14px;
       background:#1e1e1e;
-      margin:8px 0;
-      border-radius:8px;
+      margin:10px 0;
+      border-radius:10px;
       cursor:pointer;
       text-align:center;
-    }
-    .btn.disabled {
-      opacity:0.5;
-      pointer-events:none;
+      font-size:16px;
     }
     .task {
       margin-top:16px;
     }
     .check {
-      margin:6px 0;
+      margin:8px 0;
       cursor:pointer;
       user-select:none;
+      padding:8px;
+      border-radius:6px;
     }
     .check.done {
       opacity:0.6;
@@ -40,7 +40,8 @@
 <body>
 
 <h1>SYNDICATE</h1>
-<div id="btnTasks" class="btn disabled">📋 Мои задания</div>
+
+<div class="btn" onclick="openTasks()">📋 Мои задания</div>
 <div id="output"></div>
 
 <script>
@@ -48,7 +49,7 @@ const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
-let CURRENT_TASK = null;
+let STATE = null;
 
 /* ===== API ===== */
 function api(url, options = {}) {
@@ -69,53 +70,40 @@ fetch("/auth", {
 })
 .then(r => r.json())
 .then(d => {
-  if (!d.token) {
-    output.innerHTML = "<p>Ошибка авторизации</p>";
-    return;
-  }
   TOKEN = d.token;
-  btnTasks.classList.remove("disabled");
-  btnTasks.onclick = openTasks;
 });
 
 /* ===== LOAD TASK ===== */
 function openTasks() {
-  output.innerHTML = "<p>Загрузка…</p>";
   api("/my-tasks").then(d => {
-    if (!d.task) {
-      output.innerHTML = `
-        <p>Нет активных заданий</p>
-        <p style="opacity:0.6;font-size:13px">
-          (если день только что откатился — открой его в админке)
-        </p>
-      `;
+    if (!d.ok || !d.task) {
+      output.innerHTML = "<p>Нет активных заданий</p>";
       return;
     }
-    CURRENT_TASK = d;
-    renderTask();
+    STATE = d;
+    render();
   });
 }
 
 /* ===== RENDER ===== */
-function renderTask() {
-  const d = CURRENT_TASK;
+function render() {
+  const { task, checklist } = STATE;
+
   let html = `
     <div class="task">
-      <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
-      <h3>Миссия: "${d.task.mission}"</h3>
-      <p>${d.task.description.replace(/\n/g, "<br>")}</p>
+      <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
+      <h3>Миссия: «${task.mission}»</h3>
+      <p>${task.description.replace(/\n/g, "<br>")}</p>
       <h4>Чек‑лист</h4>
   `;
 
-  if (d.checklist.length === 0) {
+  if (!checklist.length) {
     html += "<p>Пунктов чек‑листа нет</p>";
   } else {
-    d.checklist.forEach(i => {
+    checklist.forEach(i => {
       html += `
-        <div
-          class="check ${i.done ? "done" : ""}"
-          onclick="toggleChecklist('${i.id}')"
-        >
+        <div class="check ${i.done ? "done" : ""}"
+             onclick="toggle('${i.id}')">
           ${i.done ? "✅" : "⬜"} ${i.title}
         </div>
       `;
@@ -126,16 +114,16 @@ function renderTask() {
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE ===== */
-function toggleChecklist(id) {
-  const item = CURRENT_TASK.checklist.find(i => i.id === id);
+/* ===== TOGGLE (ОПТИМИСТИЧНО) ===== */
+function toggle(id) {
+  const item = STATE.checklist.find(i => i.id === id);
   if (!item) return;
 
-  // мгновенный UI
+  // UI сразу
   item.done = !item.done;
-  renderTask();
+  render();
 
-  // сохранение
+  // сервер асинхронно
   api("/checklist/toggle", {
     method: "POST",
     body: JSON.stringify({
@@ -145,5 +133,6 @@ function toggleChecklist(id) {
   });
 }
 </script>
+
 </body>
 </html>
