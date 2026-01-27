@@ -11,7 +11,7 @@
       font-family:Arial, sans-serif;
       padding:16px;
     }
-    h1, h2, h3, h4 { margin: 8px 0; }
+    h1,h2,h3,h4 { margin:8px 0; }
     .btn {
       padding:14px;
       background:#1e1e1e;
@@ -19,17 +19,14 @@
       border-radius:10px;
       cursor:pointer;
       text-align:center;
-      font-size:16px;
     }
-    .task {
-      margin-top:16px;
-    }
+    .task { margin-top:16px; }
     .check {
       margin:8px 0;
-      cursor:pointer;
-      user-select:none;
       padding:8px;
       border-radius:6px;
+      cursor:pointer;
+      user-select:none;
     }
     .check.done {
       opacity:0.6;
@@ -40,7 +37,6 @@
 <body>
 
 <h1>SYNDICATE</h1>
-
 <div class="btn" onclick="openTasks()">📋 Мои задания</div>
 <div id="output"></div>
 
@@ -64,14 +60,12 @@ function api(url, options = {}) {
 
 /* ===== AUTH ===== */
 fetch("/auth", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
+  method:"POST",
+  headers:{ "Content-Type":"application/json" },
   body: JSON.stringify({ initData: tg.initData })
 })
 .then(r => r.json())
-.then(d => {
-  TOKEN = d.token;
-});
+.then(d => TOKEN = d.token);
 
 /* ===== LOAD TASK ===== */
 function openTasks() {
@@ -93,7 +87,7 @@ function render() {
     <div class="task">
       <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
       <h3>Миссия: «${task.mission}»</h3>
-      <p>${task.description.replace(/\n/g, "<br>")}</p>
+      <p>${task.description.replace(/\n/g,"<br>")}</p>
       <h4>Чек‑лист</h4>
   `;
 
@@ -103,7 +97,7 @@ function render() {
     checklist.forEach(i => {
       html += `
         <div class="check ${i.done ? "done" : ""}"
-             onclick="toggle('${i.id}')">
+             onclick="toggleItem('${i.id}')">
           ${i.done ? "✅" : "⬜"} ${i.title}
         </div>
       `;
@@ -114,18 +108,16 @@ function render() {
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE (ОПТИМИСТИЧНО) ===== */
-function toggle(id) {
+/* ===== TOGGLE ===== */
+function toggleItem(id) {
   const item = STATE.checklist.find(i => i.id === id);
   if (!item) return;
 
-  // UI сразу
   item.done = !item.done;
   render();
 
-  // сервер асинхронно
   api("/checklist/toggle", {
-    method: "POST",
+    method:"POST",
     body: JSON.stringify({
       checklist_id: id,
       done: item.done
@@ -133,6 +125,5 @@ function toggle(id) {
   });
 }
 </script>
-
 </body>
 </html>
