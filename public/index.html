@@ -19,6 +19,10 @@
       cursor:pointer;
       text-align:center;
     }
+    .btn.disabled {
+      opacity:0.5;
+      pointer-events:none;
+    }
     .task {
       margin-top:16px;
     }
@@ -36,7 +40,7 @@
 <body>
 
 <h1>SYNDICATE</h1>
-<div class="btn" onclick="openTasks()">📋 Мои задания</div>
+<div id="btnTasks" class="btn disabled">📋 Мои задания</div>
 <div id="output"></div>
 
 <script>
@@ -65,19 +69,29 @@ fetch("/auth", {
 })
 .then(r => r.json())
 .then(d => {
+  if (!d.token) {
+    output.innerHTML = "<p>Ошибка авторизации</p>";
+    return;
+  }
   TOKEN = d.token;
+  btnTasks.classList.remove("disabled");
+  btnTasks.onclick = openTasks;
 });
 
 /* ===== LOAD TASK ===== */
 function openTasks() {
+  output.innerHTML = "<p>Загрузка…</p>";
   api("/my-tasks").then(d => {
     if (!d.task) {
-      output.innerHTML = "<p>Нет активных заданий</p>";
+      output.innerHTML = `
+        <p>Нет активных заданий</p>
+        <p style="opacity:0.6;font-size:13px">
+          (если день только что откатился — открой его в админке)
+        </p>
+      `;
       return;
     }
-
     CURRENT_TASK = d;
-
     renderTask();
   });
 }
@@ -85,7 +99,6 @@ function openTasks() {
 /* ===== RENDER ===== */
 function renderTask() {
   const d = CURRENT_TASK;
-
   let html = `
     <div class="task">
       <h2>ДЕНЬ ${d.task.day} — ${d.task.title}</h2>
@@ -113,16 +126,16 @@ function renderTask() {
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE (МГНОВЕННО) ===== */
+/* ===== TOGGLE ===== */
 function toggleChecklist(id) {
   const item = CURRENT_TASK.checklist.find(i => i.id === id);
   if (!item) return;
 
-  // 1️⃣ мгновенно меняем UI
+  // мгновенный UI
   item.done = !item.done;
   renderTask();
 
-  // 2️⃣ сохраняем на сервер
+  // сохранение
   api("/checklist/toggle", {
     method: "POST",
     body: JSON.stringify({
@@ -132,6 +145,5 @@ function toggleChecklist(id) {
   });
 }
 </script>
-
 </body>
 </html>
