@@ -1,87 +1,129 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>SYNDICATE</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-body { background:#0f0f0f; color:#fff; font-family:Arial; padding:16px }
-.btn { background:#1e1e1e; padding:12px; margin:6px 0; border-radius:8px; cursor:pointer }
-.day { display:inline-block; margin:4px; padding:8px 12px; background:#222; border-radius:6px; cursor:pointer }
-.check { margin:6px 0; cursor:pointer }
-.check.done { opacity:.6; text-decoration:line-through }
-</style>
+  <meta charset="UTF-8">
+  <title>SYNDICATE</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      background:#0f0f0f;
+      color:#fff;
+      font-family:Arial, sans-serif;
+      padding:16px;
+    }
+    .btn {
+      background:#1e1e1e;
+      padding:12px;
+      border-radius:10px;
+      margin:6px 0;
+      text-align:center;
+      cursor:pointer;
+    }
+    .day-btn.active {
+      background:#2c2c2c;
+    }
+    .check {
+      margin:8px 0;
+      padding:8px;
+      cursor:pointer;
+    }
+    .done {
+      opacity:0.6;
+      text-decoration:line-through;
+    }
+  </style>
 </head>
 <body>
 
 <h1>SYNDICATE</h1>
+
 <div id="days"></div>
-<div id="content"></div>
+<div id="output"></div>
 
 <script>
 const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
+let CURRENT_DAY = 1;
 let STATE = null;
 
+/* ===== API ===== */
 function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
       "Content-Type":"application/json",
-      Authorization:"Bearer "+TOKEN
+      Authorization:"Bearer " + TOKEN
     }
-  }).then(r=>r.json());
+  }).then(r => r.json());
 }
 
-/* AUTH */
+/* ===== AUTH ===== */
 fetch("/auth", {
   method:"POST",
   headers:{ "Content-Type":"application/json" },
   body: JSON.stringify({ initData: tg.initData })
 })
-.then(r=>r.json())
+.then(r => r.json())
 .then(d => {
   TOKEN = d.token;
-  loadDays();
+  renderDays();
+  loadDay(1);
 });
 
-/* DAYS */
-function loadDays() {
-  api("/days").then(d => {
-    days.innerHTML = d.days.map(day =>
-      `<span class="day" onclick="openDay(${day})">День ${day}</span>`
-    ).join("");
-  });
+/* ===== DAYS MENU ===== */
+function renderDays() {
+  let html = "";
+  for (let i=1;i<=7;i++) {
+    html += `<div class="btn day-btn" onclick="loadDay(${i})">День ${i}</div>`;
+  }
+  days.innerHTML = html;
 }
 
-/* TASK */
-function openDay(day) {
-  api("/task/"+day).then(d => {
+/* ===== LOAD DAY ===== */
+function loadDay(day) {
+  CURRENT_DAY = day;
+  api(`/task/${day}`).then(d => {
+    if (!d.ok) {
+      output.innerHTML = "<p>Нет данных</p>";
+      return;
+    }
     STATE = d;
     render();
   });
 }
 
+/* ===== RENDER ===== */
 function render() {
   const { task, checklist } = STATE;
-  let html = `<h2>День ${task.day} — ${task.title}</h2>
-  <p>${task.description.replace(/\n/g,"<br>")}</p><h3>Чек‑лист</h3>`;
+  let html = `
+    <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
+    <p>${task.description || ""}</p>
+    <h3>Чек‑лист</h3>
+  `;
   checklist.forEach(i => {
-    html += `<div class="check ${i.done?"done":""}"
-      onclick="toggle('${i.id}')">${i.done?"✅":"⬜"} ${i.title}</div>`;
+    html += `
+      <div class="check ${i.done ? "done":""}"
+           onclick="toggle('${i.id}')">
+        ${i.done ? "✅":"⬜"} ${i.title}
+      </div>
+    `;
   });
-  content.innerHTML = html;
+  output.innerHTML = html;
 }
 
+/* ===== TOGGLE ===== */
 function toggle(id) {
-  const item = STATE.checklist.find(i=>i.id===id);
+  const item = STATE.checklist.find(i => i.id === id);
   item.done = !item.done;
   render();
   api("/checklist/toggle", {
     method:"POST",
-    body: JSON.stringify({ checklist_id:id, done:item.done })
+    body: JSON.stringify({
+      checklist_id:id,
+      done:item.done
+    })
   });
 }
 </script>
