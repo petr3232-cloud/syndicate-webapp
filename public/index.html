@@ -19,15 +19,16 @@
       text-align:center;
       cursor:pointer;
     }
-    .day-btn.active {
+    .btn.active {
       background:#2c2c2c;
     }
     .check {
       margin:8px 0;
       padding:8px;
       cursor:pointer;
+      user-select:none;
     }
-    .done {
+    .check.done {
       opacity:0.6;
       text-decoration:line-through;
     }
@@ -36,7 +37,6 @@
 <body>
 
 <h1>SYNDICATE</h1>
-
 <div id="days"></div>
 <div id="output"></div>
 
@@ -45,8 +45,8 @@ const tg = Telegram.WebApp;
 tg.ready();
 
 let TOKEN = null;
-let CURRENT_DAY = 1;
 let STATE = null;
+let CURRENT_DAY = 1;
 
 /* ===== API ===== */
 function api(url, options={}) {
@@ -72,11 +72,15 @@ fetch("/auth", {
   loadDay(1);
 });
 
-/* ===== DAYS MENU ===== */
+/* ===== DAYS ===== */
 function renderDays() {
   let html = "";
-  for (let i=1;i<=7;i++) {
-    html += `<div class="btn day-btn" onclick="loadDay(${i})">День ${i}</div>`;
+  for (let i = 1; i <= 7; i++) {
+    html += `
+      <div class="btn ${i===CURRENT_DAY?"active":""}"
+           onclick="loadDay(${i})">
+        День ${i}
+      </div>`;
   }
   days.innerHTML = html;
 }
@@ -84,6 +88,8 @@ function renderDays() {
 /* ===== LOAD DAY ===== */
 function loadDay(day) {
   CURRENT_DAY = day;
+  renderDays();
+
   api(`/task/${day}`).then(d => {
     if (!d.ok) {
       output.innerHTML = "<p>Нет данных</p>";
@@ -97,35 +103,41 @@ function loadDay(day) {
 /* ===== RENDER ===== */
 function render() {
   const { task, checklist } = STATE;
+
   let html = `
     <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
-    <p>${task.description || ""}</p>
+    <p>${(task.description || "").replace(/\n/g,"<br>")}</p>
     <h3>Чек‑лист</h3>
   `;
+
   checklist.forEach(i => {
     html += `
       <div class="check ${i.done ? "done":""}"
            onclick="toggle('${i.id}')">
         ${i.done ? "✅":"⬜"} ${i.title}
-      </div>
-    `;
+      </div>`;
   });
+
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE ===== */
+/* ===== TOGGLE (SAVE REAL) ===== */
 function toggle(id) {
   const item = STATE.checklist.find(i => i.id === id);
+  if (!item) return;
+
   item.done = !item.done;
   render();
+
   api("/checklist/toggle", {
     method:"POST",
     body: JSON.stringify({
-      checklist_id:id,
-      done:item.done
+      checklist_id: id,
+      done: item.done
     })
   });
 }
 </script>
+
 </body>
 </html>
