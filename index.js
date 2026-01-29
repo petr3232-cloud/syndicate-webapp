@@ -7,22 +7,22 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-/* ===== SUPABASE ===== */
+/* ================= SUPABASE ================= */
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
+  process.env.SUPABASE_SECRET_KEY // service role
 );
 
-/* ===== MIDDLEWARE ===== */
+/* ================= MIDDLEWARE ================= */
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTHCHECK (Railway) ===== */
+/* ================= HEALTH (Railway) ================= */
 app.get("/health", (_, res) => {
   res.status(200).send("OK");
 });
 
-/* ===== TELEGRAM AUTH ===== */
+/* ================= TELEGRAM AUTH CHECK ================= */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -46,26 +46,31 @@ function checkTelegramAuth(initData) {
   return hmac === hash;
 }
 
-/* ===== JWT ===== */
+/* ================= JWT ================= */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ error: "NO TOKEN" });
+  if (!header) return res.status(401).json({ ok: false });
 
   try {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ error: "INVALID TOKEN" });
+    return res.status(401).json({ ok: false });
   }
 }
 
-/* ===== AUTH ===== */
+/* ================= MAIN ================= */
+app.get("/", (_, res) => {
+  res.sendFile(path.resolve("public/index.html"));
+});
+
+/* ================= AUTH ================= */
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
-  if (!initData) return res.status(400).json({ error: "NO INIT DATA" });
+  if (!initData) return res.status(400).json({ ok: false });
   if (!checkTelegramAuth(initData))
-    return res.status(403).json({ error: "FAKE USER" });
+    return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -102,7 +107,7 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ===== TASK BY DAY ===== */
+/* ================= TASK BY DAY ================= */
 app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
@@ -142,7 +147,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   res.json({
     ok: true,
     task,
-    checklist: items.map(i => ({
+    checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] === true
@@ -150,10 +155,14 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ===== TOGGLE CHECKLIST (ГЛАВНОЕ МЕСТО) ===== */
+/* ================= TOGGLE CHECKLIST (100% SAVE) ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
+
+  if (typeof checklist_id !== "string" || typeof done !== "boolean") {
+    return res.status(400).json({ ok: false });
+  }
 
   const { data: user } = await supabase
     .from("users")
@@ -169,17 +178,18 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
       {
         user_id: user.id,
         checklist_item_id: checklist_id,
-        done
+        done: done
       },
       {
         onConflict: "user_id,checklist_item_id"
       }
-    );
+    )
+    .select();
 
-  res.json({ ok: true });
+  res.json({ ok: true, saved: result.data });
 });
 
-/* ===== START ===== */
+/* ================= START ================= */
 app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Server running on", PORT);
 });
