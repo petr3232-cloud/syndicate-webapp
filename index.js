@@ -49,17 +49,13 @@ function checkTelegramAuth(initData) {
 /* ================= JWT ================= */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization;
-  if (!header) {
-    console.log("❌ NO AUTH HEADER");
-    return res.status(401).json({ ok: false });
-  }
+  if (!header) return res.status(401).json({ ok: false });
 
   try {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (e) {
-    console.log("❌ JWT ERROR", e);
+  } catch {
     return res.status(401).json({ ok: false });
   }
 }
@@ -72,33 +68,21 @@ app.get("/", (_, res) => {
 /* ================= AUTH ================= */
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
-  console.log("🔐 AUTH REQUEST");
-
   if (!initData) return res.status(400).json({ ok: false });
-
-  if (!checkTelegramAuth(initData)) {
-    console.log("❌ TELEGRAM AUTH FAILED");
+  if (!checkTelegramAuth(initData))
     return res.status(403).json({ ok: false });
-  }
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
   const telegramId = String(tgUser.id);
 
-  console.log("👤 TG USER ID:", telegramId);
-
-  let { data: user, error } = await supabase
+  let { data: user } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegramId)
     .single();
 
-  if (error && error.code !== "PGRST116") {
-    console.log("❌ USER SELECT ERROR:", error);
-  }
-
   if (!user) {
-    console.log("➕ INSERT USER");
     const insert = await supabase
       .from("users")
       .insert({
@@ -110,10 +94,6 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
-
-    if (insert.error) {
-      console.log("❌ USER INSERT ERROR:", insert.error);
-    }
 
     user = insert.data;
   }
@@ -132,42 +112,32 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
 
-  console.log("📅 LOAD DAY:", day, "TG:", telegram_id);
-
-  const { data: user, error: uErr } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (uErr) console.log("❌ USER LOAD ERROR:", uErr);
   if (!user) return res.json({ ok: false });
 
-  const { data: task, error: tErr } = await supabase
+  const { data: task } = await supabase
     .from("tasks")
     .select("*")
     .eq("day", day)
     .single();
 
-  if (tErr) console.log("❌ TASK ERROR:", tErr);
   if (!task) return res.json({ ok: false });
 
-  const { data: items, error: iErr } = await supabase
+  const { data: items } = await supabase
     .from("task_checklist_items")
     .select("id, title, position")
     .eq("task_id", task.id)
     .order("position");
 
-  if (iErr) console.log("❌ ITEMS ERROR:", iErr);
-
-  const { data: marks, error: mErr } = await supabase
+  const { data: marks } = await supabase
     .from("user_checklist_items")
     .select("checklist_item_id, done")
     .eq("user_id", user.id);
-
-  if (mErr) console.log("❌ MARKS ERROR:", mErr);
-
-  console.log("📌 MARKS FROM DB:", marks);
 
   const doneMap = {};
   (marks || []).forEach(m => {
@@ -185,31 +155,26 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE ================= */
+/* ================= CHECKLIST TOGGLE (МИНИМАЛЬНЫЕ ЛОГИ) ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
-  console.log("🟡 TOGGLE REQUEST:", req.body);
-
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
+  console.log("🟡 TOGGLE:", checklist_id, done);
+
   if (typeof checklist_id !== "string" || typeof done !== "boolean") {
-    console.log("❌ BAD BODY");
     return res.status(400).json({ ok: false });
   }
 
-  const { data: user, error: uErr } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (uErr) console.log("❌ USER ERROR:", uErr);
   if (!user) return res.json({ ok: false });
 
-  console.log("👤 USER ID:", user.id);
-  console.log("🧩 CHECKLIST ID:", checklist_id, "DONE:", done);
-
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("user_checklist_items")
     .upsert(
       {
@@ -218,16 +183,15 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
         done: done
       },
       { onConflict: "user_id,checklist_item_id" }
-    )
-    .select();
+    );
 
   if (error) {
-    console.log("❌ UPSERT ERROR:", error);
+    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
     return res.status(500).json({ ok: false });
   }
 
-  console.log("✅ UPSERT OK:", data);
-  res.json({ ok: true, row: data });
+  console.log("✅ CHECKLIST SAVED:", checklist_id);
+  res.json({ ok: true });
 });
 
 /* ================= START ================= */
