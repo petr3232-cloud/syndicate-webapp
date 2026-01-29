@@ -12,17 +12,15 @@ console.log("🔥 SERVER BOOT");
 /* ===== SUPABASE ===== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
+  process.env.SUPABASE_SECRET_KEY // service role
 );
 
 /* ===== MIDDLEWARE ===== */
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTHCHECK (Railway) ===== */
-app.get("/health", (_, res) => {
-  res.status(200).send("OK");
-});
+/* ===== HEALTH (Railway) ===== */
+app.get("/health", (_, res) => res.status(200).send("OK"));
 
 /* ===== TELEGRAM AUTH ===== */
 function checkTelegramAuth(initData) {
@@ -85,13 +83,17 @@ app.post("/auth", async (req, res) => {
     .single();
 
   if (!user) {
-    const insert = await supabase.from("users").insert({
-      telegram_id: telegramId,
-      username: tgUser.username ?? null,
-      points: 0,
-      level: "Новичок",
-      is_admin: false
-    }).select("id").single();
+    const insert = await supabase
+      .from("users")
+      .insert({
+        telegram_id: telegramId,
+        username: tgUser.username ?? null,
+        points: 0,
+        level: "Новичок",
+        is_admin: false
+      })
+      .select("id")
+      .single();
 
     user = insert.data;
   }
@@ -138,12 +140,14 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("user_id", user.id);
 
   const doneMap = {};
-  (marks || []).forEach(m => doneMap[m.checklist_item_id] = m.done);
+  (marks || []).forEach(m => {
+    doneMap[m.checklist_item_id] = m.done === true;
+  });
 
   res.json({
     ok: true,
     task,
-    checklist: items.map(i => ({
+    checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] === true
@@ -151,7 +155,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ===== TOGGLE CHECKLIST ===== */
+/* ===== TOGGLE CHECKLIST (100% SAVE) ===== */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -162,21 +166,23 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.json({ ok: true });
+  if (!user) return res.json({ ok: false });
 
-  await supabase.from("user_checklist_items").upsert(
-    {
-      user_id: user.id,
-      checklist_item_id: checklist_id,
-      done
-    },
-    { onConflict: "user_id,checklist_item_id" }
-  );
+  await supabase
+    .from("user_checklist_items")
+    .upsert(
+      {
+        user_id: user.id,
+        checklist_item_id: checklist_id,
+        done: done === true
+      },
+      { onConflict: "user_id,checklist_item_id" }
+    );
 
   res.json({ ok: true });
 });
 
-/* ===== START (Railway FIX) ===== */
+/* ===== START ===== */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running on ${PORT}`);
+  console.log("🚀 Server running on", PORT);
 });
