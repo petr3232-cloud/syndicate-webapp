@@ -7,8 +7,6 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-console.log("🔥 SERVER BOOT");
-
 /* ===== SUPABASE ===== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -19,7 +17,7 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTHCHECK ===== */
+/* ===== HEALTHCHECK (Railway) ===== */
 app.get("/health", (_, res) => {
   res.status(200).send("OK");
 });
@@ -57,15 +55,10 @@ function requireAuth(req, res, next) {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (e) {
+  } catch {
     return res.status(401).json({ error: "INVALID TOKEN" });
   }
 }
-
-/* ===== MAIN ===== */
-app.get("/", (_, res) => {
-  res.sendFile(path.resolve("public/index.html"));
-});
 
 /* ===== AUTH ===== */
 app.post("/auth", async (req, res) => {
@@ -157,46 +150,36 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ===== TOGGLE CHECKLIST (КЛЮЧЕВОЕ МЕСТО) ===== */
+/* ===== TOGGLE CHECKLIST (ГЛАВНОЕ МЕСТО) ===== */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
-  if (!checklist_id) {
-    return res.status(400).json({ error: "NO CHECKLIST ID" });
-  }
-
-  const { data: user, error: userErr } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (userErr || !user) {
-    console.error("USER ERROR", userErr);
-    return res.status(500).json({ error: "USER NOT FOUND" });
-  }
+  if (!user) return res.json({ ok: false });
 
-  const { error } = await supabase
+  const result = await supabase
     .from("user_checklist_items")
     .upsert(
       {
         user_id: user.id,
         checklist_item_id: checklist_id,
-        done: done
+        done
       },
-      { onConflict: "user_id,checklist_item_id" }
+      {
+        onConflict: "user_id,checklist_item_id"
+      }
     );
-
-  if (error) {
-    console.error("UPSERT ERROR", error);
-    return res.status(500).json({ error: "UPSERT FAILED" });
-  }
 
   res.json({ ok: true });
 });
 
 /* ===== START ===== */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running on ${PORT}`);
+  console.log("🚀 Server running on", PORT);
 });
