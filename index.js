@@ -17,7 +17,7 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ================= HEALTH (Railway) ================= */
+/* ================= HEALTH ================= */
 app.get("/health", (_, res) => {
   res.status(200).send("OK");
 });
@@ -141,7 +141,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
 
   const doneMap = {};
   (marks || []).forEach(m => {
-    doneMap[m.checklist_item_id] = m.done;
+    doneMap[m.checklist_item_id] = m.done === true;
   });
 
   res.json({
@@ -150,12 +150,12 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
-      done: doneMap[i.id] === true
+      done: doneMap[i.id] || false
     }))
   });
 });
 
-/* ================= TOGGLE CHECKLIST (100% SAVE) ================= */
+/* ================= CHECKLIST TOGGLE (КЛЮЧЕВОЕ) ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -172,7 +172,7 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
 
   if (!user) return res.json({ ok: false });
 
-  const result = await supabase
+  const { data, error } = await supabase
     .from("user_checklist_items")
     .upsert(
       {
@@ -180,13 +180,16 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
         checklist_item_id: checklist_id,
         done: done
       },
-      {
-        onConflict: "user_id,checklist_item_id"
-      }
+      { onConflict: "user_id,checklist_item_id" }
     )
     .select();
 
-  res.json({ ok: true, saved: result.data });
+  if (error) {
+    console.error("UPSERT ERROR:", error);
+    return res.status(500).json({ ok: false });
+  }
+
+  res.json({ ok: true, row: data });
 });
 
 /* ================= START ================= */
