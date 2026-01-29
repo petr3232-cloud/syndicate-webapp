@@ -12,15 +12,17 @@ console.log("🔥 SERVER BOOT");
 /* ===== SUPABASE ===== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY // service role
+  process.env.SUPABASE_SECRET_KEY
 );
 
 /* ===== MIDDLEWARE ===== */
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ===== HEALTH (Railway) ===== */
-app.get("/health", (_, res) => res.status(200).send("OK"));
+/* ===== HEALTHCHECK ===== */
+app.get("/health", (_, res) => {
+  res.status(200).send("OK");
+});
 
 /* ===== TELEGRAM AUTH ===== */
 function checkTelegramAuth(initData) {
@@ -55,7 +57,7 @@ function requireAuth(req, res, next) {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch {
+  } catch (e) {
     return res.status(401).json({ error: "INVALID TOKEN" });
   }
 }
@@ -141,13 +143,13 @@ app.get("/task/:day", requireAuth, async (req, res) => {
 
   const doneMap = {};
   (marks || []).forEach(m => {
-    doneMap[m.checklist_item_id] = m.done === true;
+    doneMap[m.checklist_item_id] = m.done;
   });
 
   res.json({
     ok: true,
     task,
-    checklist: (items || []).map(i => ({
+    checklist: items.map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] === true
@@ -155,34 +157,46 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ===== TOGGLE CHECKLIST (100% SAVE) ===== */
+/* ===== TOGGLE CHECKLIST (КЛЮЧЕВОЕ МЕСТО) ===== */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
-  const { data: user } = await supabase
+  if (!checklist_id) {
+    return res.status(400).json({ error: "NO CHECKLIST ID" });
+  }
+
+  const { data: user, error: userErr } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.json({ ok: false });
+  if (userErr || !user) {
+    console.error("USER ERROR", userErr);
+    return res.status(500).json({ error: "USER NOT FOUND" });
+  }
 
-  await supabase
+  const { error } = await supabase
     .from("user_checklist_items")
     .upsert(
       {
         user_id: user.id,
         checklist_item_id: checklist_id,
-        done: done === true
+        done: done
       },
       { onConflict: "user_id,checklist_item_id" }
     );
+
+  if (error) {
+    console.error("UPSERT ERROR", error);
+    return res.status(500).json({ error: "UPSERT FAILED" });
+  }
 
   res.json({ ok: true });
 });
 
 /* ===== START ===== */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Server running on", PORT);
+  console.log(`🚀 Server running on ${PORT}`);
 });
