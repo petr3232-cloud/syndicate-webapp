@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 8080;
 /* ================= SUPABASE ================= */
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY // service role
+  process.env.SUPABASE_SECRET_KEY
 );
 
 /* ================= MIDDLEWARE ================= */
@@ -22,7 +22,7 @@ app.get("/health", (_, res) => {
   res.status(200).send("OK");
 });
 
-/* ================= TELEGRAM AUTH CHECK ================= */
+/* ================= TELEGRAM AUTH ================= */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -69,8 +69,7 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData))
-    return res.status(403).json({ ok: false });
+  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -94,7 +93,6 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
-
     user = insert.data;
   }
 
@@ -140,22 +138,50 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("user_id", user.id);
 
   const doneMap = {};
+  let doneCount = 0;
+
   (marks || []).forEach(m => {
-    doneMap[m.checklist_item_id] = m.done === true;
+    if (m.done) {
+      doneMap[m.checklist_item_id] = true;
+      doneCount++;
+    }
   });
+
+  const totalCount = items.length;
+  const checklistCompleted = doneCount === totalCount;
+  const canOpenReport = doneCount >= 3;
+
+  /* === DAILY REPORT UPSERT === */
+  await supabase
+    .from("daily_reports")
+    .upsert(
+      {
+        user_id: user.id,
+        task_id: task.id,
+        checklist_done_count: doneCount,
+        checklist_total_count: totalCount,
+        checklist_completed: checklistCompleted,
+        can_open_report: canOpenReport
+      },
+      { onConflict: "user_id,task_id" }
+    );
 
   res.json({
     ok: true,
     task,
-    checklist: (items || []).map(i => ({
+    checklist: items.map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] || false
-    }))
+    })),
+    report: {
+      can_open: canOpenReport,
+      checklist_completed: checklistCompleted
+    }
   });
 });
 
-/* ================= CHECKLIST TOGGLE (МИНИМАЛЬНЫЕ ЛОГИ) ================= */
+/* ================= CHECKLIST TOGGLE ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -180,17 +206,16 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
       {
         user_id: user.id,
         checklist_item_id: checklist_id,
-        done: done
+        done
       },
       { onConflict: "user_id,checklist_item_id" }
     );
 
   if (error) {
-    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
+    console.log("❌ CHECKLIST ERROR:", error.message);
     return res.status(500).json({ ok: false });
   }
 
-  console.log("✅ CHECKLIST SAVED:", checklist_id);
   res.json({ ok: true });
 });
 
