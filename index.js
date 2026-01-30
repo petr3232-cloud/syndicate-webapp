@@ -59,7 +59,7 @@ function requireAuth(req, res, next) {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch {
+  } catch (e) {
     console.log("❌ JWT ERROR");
     return res.status(401).json({ ok: false });
   }
@@ -74,8 +74,7 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData))
-    return res.status(403).json({ ok: false });
+  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -112,57 +111,7 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ================= TASK BY DAY ================= */
-app.get("/task/:day", requireAuth, async (req, res) => {
-  const day = Number(req.params.day);
-  const { telegram_id } = req.user;
-
-  console.log("📅 OPEN DAY:", day, "TG:", telegram_id);
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  if (!user) return res.json({ ok: false });
-
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("*")
-    .eq("day", day)
-    .single();
-
-  if (!task) return res.json({ ok: false });
-
-  const { data: items } = await supabase
-    .from("task_checklist_items")
-    .select("id, title, position")
-    .eq("task_id", task.id)
-    .order("position");
-
-  const { data: marks } = await supabase
-    .from("user_checklist_items")
-    .select("checklist_item_id, done")
-    .eq("user_id", user.id);
-
-  const doneMap = {};
-  (marks || []).forEach(m => {
-    doneMap[m.checklist_item_id] = m.done === true;
-  });
-
-  res.json({
-    ok: true,
-    task,
-    checklist: (items || []).map(i => ({
-      id: i.id,
-      title: i.title,
-      done: doneMap[i.id] || false
-    }))
-  });
-});
-
-/* ================= CHECKLIST TOGGLE (КЛЮЧЕВОЕ) ================= */
+/* ================= CHECKLIST TOGGLE ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -170,17 +119,17 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
   console.log("🟡 TOGGLE:", checklist_id, done);
 
   if (typeof checklist_id !== "string" || typeof done !== "boolean") {
-    console.log("❌ BAD BODY");
+    console.log("❌ BAD PAYLOAD:", req.body);
     return res.status(400).json({ ok: false });
   }
 
-  const { data: user } = await supabase
+  const { data: user, error: uErr } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) {
+  if (uErr || !user) {
     console.log("❌ USER NOT FOUND");
     return res.status(400).json({ ok: false });
   }
@@ -188,23 +137,23 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const payload = {
     user_id: user.id,
     checklist_item_id: checklist_id,
-    done: done,
-    completed_at: done ? new Date().toISOString() : null
+    done: done
   };
 
-  const { data, error } = await supabase
+  console.log("📦 UPSERT PAYLOAD:", payload);
+
+  const { error } = await supabase
     .from("user_checklist_items")
     .upsert(payload, {
       onConflict: "user_id,checklist_item_id"
-    })
-    .select();
+    });
 
   if (error) {
     console.log("❌ UPSERT ERROR:", error);
     return res.status(500).json({ ok: false });
   }
 
-  console.log("✅ UPSERT OK:", data);
+  console.log("✅ CHECKLIST SAVED");
   res.json({ ok: true });
 });
 
