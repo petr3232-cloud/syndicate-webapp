@@ -175,30 +175,29 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     { onConflict: "user_id,checklist_item_id" }
   );
 
-  /* === считаем выполненные пункты === */
-  const { data: completed } = await supabase
+  /* === СЧИТАЕМ ВЫПОЛНЕННЫЕ (ВАЖНО: count!) === */
+  const { count } = await supabase
     .from("user_checklist_items")
-    .select("id", { count: "exact" })
+    .select("*", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("done", true);
 
-  const completedCount = completed.length;
+  const completedCount = count || 0;
   console.log("📊 COMPLETED COUNT:", completedCount);
 
-  /* === получаем task_id === */
+  /* === ПОЛУЧАЕМ task_id === */
   const { data: item } = await supabase
     .from("task_checklist_items")
     .select("task_id")
     .eq("id", checklist_id)
     .single();
 
-  /* === upsert daily_reports === */
+  /* === DAILY REPORT === */
   await supabase.from("daily_reports").upsert(
     {
       user_id: user.id,
       task_id: item.task_id,
       checklist_done_count: completedCount,
-      checklist_completed: completedCount >= 3,
       can_open_report: completedCount >= 3
     },
     { onConflict: "user_id,task_id" }
@@ -208,7 +207,10 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     console.log("📝 DAILY REPORT AVAILABLE");
   }
 
-  res.json({ ok: true, can_open_report: completedCount >= 3 });
+  res.json({
+    ok: true,
+    can_open_report: completedCount >= 3
+  });
 });
 
 /* ================= START ================= */
