@@ -70,8 +70,7 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData))
-    return res.status(403).json({ ok: false });
+  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -113,7 +112,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
 
-  console.log("📅 OPEN DAY:", day, "TG:", telegram_id);
+  console.log("📅 OPEN DAY:", day);
 
   const { data: user } = await supabase
     .from("users")
@@ -121,15 +120,11 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.json({ ok: false });
-
   const { data: task } = await supabase
     .from("tasks")
     .select("*")
     .eq("day", day)
     .single();
-
-  if (!task) return res.json({ ok: false });
 
   const { data: items } = await supabase
     .from("task_checklist_items")
@@ -147,18 +142,10 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     doneMap[m.checklist_item_id] = m.done === true;
   });
 
-  const { data: report } = await supabase
-    .from("daily_reports")
-    .select("can_open_report")
-    .eq("user_id", user.id)
-    .eq("task_id", task.id)
-    .maybeSingle();
-
   res.json({
     ok: true,
     task,
-    can_open_report: report?.can_open_report ?? false,
-    checklist: (items || []).map(i => ({
+    checklist: items.map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] || false
@@ -166,7 +153,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE ================= */
+/* ================= CHECKLIST TOGGLE + DAILY REPORT ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -179,64 +166,49 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.status(400).json({ ok: false });
+  await supabase.from("user_checklist_items").upsert(
+    {
+      user_id: user.id,
+      checklist_item_id: checklist_id,
+      done
+    },
+    { onConflict: "user_id,checklist_item_id" }
+  );
 
-  await supabase
+  /* === считаем выполненные пункты === */
+  const { data: completed } = await supabase
     .from("user_checklist_items")
-    .upsert(
-      {
-        user_id: user.id,
-        checklist_item_id: checklist_id,
-        done
-      },
-      { onConflict: "user_id,checklist_item_id" }
-    );
+    .select("id", { count: "exact" })
+    .eq("user_id", user.id)
+    .eq("done", true);
 
+  const completedCount = completed.length;
+  console.log("📊 COMPLETED COUNT:", completedCount);
+
+  /* === получаем task_id === */
   const { data: item } = await supabase
     .from("task_checklist_items")
     .select("task_id")
     .eq("id", checklist_id)
     .single();
 
-  const taskId = item.task_id;
+  /* === upsert daily_reports === */
+  await supabase.from("daily_reports").upsert(
+    {
+      user_id: user.id,
+      task_id: item.task_id,
+      checklist_done_count: completedCount,
+      checklist_completed: completedCount >= 3,
+      can_open_report: completedCount >= 3
+    },
+    { onConflict: "user_id,task_id" }
+  );
 
-  const { count: doneCount } = await supabase
-    .from("user_checklist_items")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .eq("done", true)
-    .in(
-      "checklist_item_id",
-      supabase
-        .from("task_checklist_items")
-        .select("id")
-        .eq("task_id", taskId)
-    );
+  if (completedCount >= 3) {
+    console.log("📝 DAILY REPORT AVAILABLE");
+  }
 
-  const { count: totalCount } = await supabase
-    .from("task_checklist_items")
-    .select("*", { count: "exact", head: true })
-    .eq("task_id", taskId);
-
-  const canOpen = doneCount >= 3;
-
-  await supabase
-    .from("daily_reports")
-    .upsert(
-      {
-        user_id: user.id,
-        task_id: taskId,
-        checklist_done_count: doneCount,
-        checklist_total_count: totalCount,
-        checklist_completed: doneCount === totalCount,
-        can_open_report: canOpen
-      },
-      { onConflict: "user_id,task_id" }
-    );
-
-  console.log("📝 DAILY REPORT UPSERTED");
-
-  res.json({ ok: true, can_open_report: canOpen });
+  res.json({ ok: true, can_open_report: completedCount >= 3 });
 });
 
 /* ================= START ================= */
