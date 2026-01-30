@@ -17,6 +17,20 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
+/* ================= PROCESS GUARD ================= */
+process.on("SIGTERM", () => {
+  console.log("🛑 SIGTERM received. Railway is stopping the container.");
+});
+
+process.on("SIGINT", () => {
+  console.log("🛑 SIGINT received.");
+});
+
+/* ================= KEEP ALIVE ================= */
+setInterval(() => {
+  console.log("⏱ keep-alive tick");
+}, 30000);
+
 /* ================= HEALTH ================= */
 app.get("/health", (_, res) => {
   console.log("💓 HEALTH CHECK HIT");
@@ -59,7 +73,7 @@ function requireAuth(req, res, next) {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (e) {
+  } catch {
     console.log("❌ JWT ERROR");
     return res.status(401).json({ ok: false });
   }
@@ -74,7 +88,9 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
+
+  if (!checkTelegramAuth(initData))
+    return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -118,35 +134,27 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
 
   console.log("🟡 TOGGLE:", checklist_id, done);
 
-  if (typeof checklist_id !== "string" || typeof done !== "boolean") {
-    console.log("❌ BAD PAYLOAD:", req.body);
-    return res.status(400).json({ ok: false });
-  }
-
-  const { data: user, error: uErr } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (uErr || !user) {
+  if (!user) {
     console.log("❌ USER NOT FOUND");
     return res.status(400).json({ ok: false });
   }
 
-  const payload = {
-    user_id: user.id,
-    checklist_item_id: checklist_id,
-    done: done
-  };
-
-  console.log("📦 UPSERT PAYLOAD:", payload);
-
   const { error } = await supabase
     .from("user_checklist_items")
-    .upsert(payload, {
-      onConflict: "user_id,checklist_item_id"
-    });
+    .upsert(
+      {
+        user_id: user.id,
+        checklist_item_id: checklist_id,
+        done: done
+      },
+      { onConflict: "user_id,checklist_item_id" }
+    );
 
   if (error) {
     console.log("❌ UPSERT ERROR:", error);
