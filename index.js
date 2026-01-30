@@ -22,7 +22,7 @@ app.get("/health", (_, res) => {
   res.status(200).send("OK");
 });
 
-/* ================= TELEGRAM AUTH ================= */
+/* ================= TELEGRAM AUTH CHECK ================= */
 function checkTelegramAuth(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -93,6 +93,7 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
+
     user = insert.data;
   }
 
@@ -153,35 +154,12 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= DAILY REPORT: GET ================= */
-app.get("/daily-report/:taskId", requireAuth, async (req, res) => {
+/* ================= CHECKLIST TOGGLE ================= */
+app.post("/checklist/toggle", requireAuth, async (req, res) => {
+  const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
-  const { taskId } = req.params;
 
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  if (!user) return res.json({ ok: false });
-
-  const { data: report } = await supabase
-    .from("daily_reports")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("task_id", taskId)
-    .single();
-
-  res.json({ ok: true, report: report || null });
-});
-
-/* ================= DAILY REPORT: SAVE ================= */
-app.post("/daily-report", requireAuth, async (req, res) => {
-  const { telegram_id } = req.user;
-  const { task_id, report_text } = req.body;
-
-  if (!task_id) return res.status(400).json({ ok: false });
+  console.log("🟡 TOGGLE:", checklist_id, done);
 
   const { data: user } = await supabase
     .from("users")
@@ -192,40 +170,6 @@ app.post("/daily-report", requireAuth, async (req, res) => {
   if (!user) return res.json({ ok: false });
 
   await supabase
-    .from("daily_reports")
-    .upsert(
-      {
-        user_id: user.id,
-        task_id,
-        report_text,
-        submitted_at: new Date().toISOString()
-      },
-      { onConflict: "user_id,task_id" }
-    );
-
-  res.json({ ok: true });
-});
-
-/* ================= CHECKLIST TOGGLE ================= */
-app.post("/checklist/toggle", requireAuth, async (req, res) => {
-  const { checklist_id, done } = req.body;
-  const { telegram_id } = req.user;
-
-  console.log("🟡 TOGGLE:", checklist_id, done);
-
-  if (typeof checklist_id !== "string" || typeof done !== "boolean") {
-    return res.status(400).json({ ok: false });
-  }
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  if (!user) return res.json({ ok: false });
-
-  const { error } = await supabase
     .from("user_checklist_items")
     .upsert(
       {
@@ -236,10 +180,77 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
       { onConflict: "user_id,checklist_item_id" }
     );
 
-  if (error) {
-    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
-    return res.status(500).json({ ok: false });
-  }
+  res.json({ ok: true });
+});
+
+/* ================= DAILY REPORT ================= */
+
+/** получить daily report */
+app.get("/daily-report/:taskId", requireAuth, async (req, res) => {
+  const { taskId } = req.params;
+  const { telegram_id } = req.user;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  const { data: report } = await supabase
+    .from("daily_reports")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("task_id", taskId)
+    .single();
+
+  res.json({ ok: true, report });
+});
+
+/** сохранить daily report */
+app.post("/daily-report/save", requireAuth, async (req, res) => {
+  const { task_id, report_text, photo_url } = req.body;
+  const { telegram_id } = req.user;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  /* считаем чеклист */
+  const { data: items } = await supabase
+    .from("task_checklist_items")
+    .select("id")
+    .eq("task_id", task_id);
+
+  const { data: doneItems } = await supabase
+    .from("user_checklist_items")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("done", true);
+
+  const doneCount = doneItems.length;
+  const totalCount = items.length;
+
+  const canOpen = doneCount >= 3;
+  const checklistCompleted = doneCount === totalCount;
+
+  await supabase
+    .from("daily_reports")
+    .upsert(
+      {
+        user_id: user.id,
+        task_id,
+        report_text,
+        photo_url,
+        checklist_done_count: doneCount,
+        checklist_total_count: totalCount,
+        can_open_report: canOpen,
+        checklist_completed: checklistCompleted,
+        submitted_at: new Date()
+      },
+      { onConflict: "user_id,task_id" }
+    );
 
   res.json({ ok: true });
 });
