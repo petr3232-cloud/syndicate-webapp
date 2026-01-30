@@ -50,17 +50,13 @@ function checkTelegramAuth(initData) {
 /* ================= JWT ================= */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization;
-  if (!header) {
-    console.log("❌ NO AUTH HEADER");
-    return res.status(401).json({ ok: false });
-  }
+  if (!header) return res.status(401).json({ ok: false });
 
   try {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    console.log("❌ JWT ERROR");
     return res.status(401).json({ ok: false });
   }
 }
@@ -111,7 +107,7 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ================= TASK BY DAY (КЛЮЧЕВОЕ!) ================= */
+/* ================= TASK BY DAY ================= */
 app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
@@ -161,7 +157,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE ================= */
+/* ================= CHECKLIST TOGGLE + DAILY REPORT ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -176,6 +172,7 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
 
   if (!user) return res.status(400).json({ ok: false });
 
+  /* сохраняем чеклист */
   const { error } = await supabase
     .from("user_checklist_items")
     .upsert(
@@ -188,8 +185,53 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     );
 
   if (error) {
-    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
+    console.log("❌ CHECKLIST SAVE ERROR:", error);
     return res.status(500).json({ ok: false });
+  }
+
+  /* ====== DAILY REPORT LOGIC ====== */
+
+  // узнаём день
+  const { data: item } = await supabase
+    .from("task_checklist_items")
+    .select("task_id")
+    .eq("id", checklist_id)
+    .single();
+
+  if (!item) return res.json({ ok: true });
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("day")
+    .eq("id", item.task_id)
+    .single();
+
+  if (!task) return res.json({ ok: true });
+
+  // считаем выполненные пункты
+  const { data: completed } = await supabase
+    .from("user_checklist_items")
+    .select("id", { count: "exact" })
+    .eq("user_id", user.id)
+    .eq("done", true);
+
+  const completedCount = completed?.length || 0;
+
+  console.log("📊 COMPLETED COUNT:", completedCount);
+
+  if (completedCount >= 3) {
+    await supabase
+      .from("daily_reports")
+      .upsert(
+        {
+          user_id: user.id,
+          day: task.day,
+          completed_count: completedCount
+        },
+        { onConflict: "user_id,day" }
+      );
+
+    console.log("📝 DAILY REPORT SAVED");
   }
 
   res.json({ ok: true });
