@@ -138,47 +138,72 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("user_id", user.id);
 
   const doneMap = {};
-  let doneCount = 0;
-
   (marks || []).forEach(m => {
-    if (m.done) {
-      doneMap[m.checklist_item_id] = true;
-      doneCount++;
-    }
+    doneMap[m.checklist_item_id] = m.done === true;
   });
 
-  const totalCount = items.length;
-  const checklistCompleted = doneCount === totalCount;
-  const canOpenReport = doneCount >= 3;
+  res.json({
+    ok: true,
+    task,
+    checklist: (items || []).map(i => ({
+      id: i.id,
+      title: i.title,
+      done: doneMap[i.id] || false
+    }))
+  });
+});
 
-  /* === DAILY REPORT UPSERT === */
+/* ================= DAILY REPORT: GET ================= */
+app.get("/daily-report/:taskId", requireAuth, async (req, res) => {
+  const { telegram_id } = req.user;
+  const { taskId } = req.params;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  if (!user) return res.json({ ok: false });
+
+  const { data: report } = await supabase
+    .from("daily_reports")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("task_id", taskId)
+    .single();
+
+  res.json({ ok: true, report: report || null });
+});
+
+/* ================= DAILY REPORT: SAVE ================= */
+app.post("/daily-report", requireAuth, async (req, res) => {
+  const { telegram_id } = req.user;
+  const { task_id, report_text } = req.body;
+
+  if (!task_id) return res.status(400).json({ ok: false });
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  if (!user) return res.json({ ok: false });
+
   await supabase
     .from("daily_reports")
     .upsert(
       {
         user_id: user.id,
-        task_id: task.id,
-        checklist_done_count: doneCount,
-        checklist_total_count: totalCount,
-        checklist_completed: checklistCompleted,
-        can_open_report: canOpenReport
+        task_id,
+        report_text,
+        submitted_at: new Date().toISOString()
       },
       { onConflict: "user_id,task_id" }
     );
 
-  res.json({
-    ok: true,
-    task,
-    checklist: items.map(i => ({
-      id: i.id,
-      title: i.title,
-      done: doneMap[i.id] || false
-    })),
-    report: {
-      can_open: canOpenReport,
-      checklist_completed: checklistCompleted
-    }
-  });
+  res.json({ ok: true });
 });
 
 /* ================= CHECKLIST TOGGLE ================= */
@@ -212,7 +237,7 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     );
 
   if (error) {
-    console.log("❌ CHECKLIST ERROR:", error.message);
+    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
     return res.status(500).json({ ok: false });
   }
 
