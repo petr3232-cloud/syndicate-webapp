@@ -32,6 +32,13 @@
       opacity:0.6;
       text-decoration:line-through;
     }
+    .report {
+      margin-top:12px;
+      padding:10px;
+      background:#163d1f;
+      border-radius:8px;
+      color:#9cffb2;
+    }
   </style>
 </head>
 <body>
@@ -47,6 +54,7 @@ tg.ready();
 let TOKEN = null;
 let STATE = null;
 let CURRENT_DAY = 1;
+let CAN_REPORT = false;
 
 /* ===== API ===== */
 function api(url, options={}) {
@@ -96,6 +104,7 @@ function loadDay(day) {
       return;
     }
     STATE = d;
+    CAN_REPORT = false;
     render();
   });
 }
@@ -118,10 +127,14 @@ function render() {
       </div>`;
   });
 
+  if (CAN_REPORT) {
+    html += `<div class="report">📝 Можно отправить отчёт</div>`;
+  }
+
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE (SAVE REAL) ===== */
+/* ===== TOGGLE ===== */
 function toggle(id) {
   const item = STATE.checklist.find(i => i.id === id);
   if (!item) return;
@@ -135,6 +148,9 @@ function toggle(id) {
       checklist_id: id,
       done: item.done
     })
+  }).then(r => {
+    CAN_REPORT = r.can_open_report === true;
+    render();
   });
 }
 </script>
