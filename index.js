@@ -17,8 +17,20 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
+/* ================= GLOBAL SAFETY LOGS ================= */
+process.on("SIGTERM", () => {
+  console.log("🛑 SIGTERM RECEIVED — container is shutting down");
+});
+process.on("uncaughtException", err => {
+  console.log("🔥 UNCAUGHT EXCEPTION:", err);
+});
+process.on("unhandledRejection", err => {
+  console.log("🔥 UNHANDLED PROMISE REJECTION:", err);
+});
+
 /* ================= HEALTH ================= */
 app.get("/health", (_, res) => {
+  console.log("💓 HEALTH CHECK HIT");
   res.status(200).send("OK");
 });
 
@@ -53,28 +65,32 @@ function requireAuth(req, res, next) {
     console.log("❌ NO AUTH HEADER");
     return res.status(401).json({ ok: false });
   }
-
   try {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (e) {
-    console.log("❌ JWT ERROR");
+  } catch {
+    console.log("❌ JWT VERIFY FAILED");
     return res.status(401).json({ ok: false });
   }
 }
 
-/* ================= MAIN ================= */
+/* ================= ROOT ================= */
 app.get("/", (_, res) => {
+  console.log("🌍 ROOT HIT");
   res.sendFile(path.resolve("public/index.html"));
 });
 
 /* ================= AUTH ================= */
 app.post("/auth", async (req, res) => {
+  console.log("🔐 AUTH REQUEST");
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData))
+
+  if (!checkTelegramAuth(initData)) {
+    console.log("❌ TELEGRAM AUTH FAILED");
     return res.status(403).json({ ok: false });
+  }
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -87,6 +103,7 @@ app.post("/auth", async (req, res) => {
     .single();
 
   if (!user) {
+    console.log("➕ INSERT USER");
     const insert = await supabase
       .from("users")
       .insert({
@@ -98,7 +115,6 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
-
     user = insert.data;
   }
 
@@ -113,23 +129,22 @@ app.post("/auth", async (req, res) => {
 
 /* ================= CHECKLIST TOGGLE ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
+  console.log("🟡 TOGGLE REQUEST:", req.body);
+
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
-  console.log("🟡 TOGGLE:", checklist_id, done);
-
-  const { data: user, error: uErr } = await supabase
+  const { data: user, error } = await supabase
     .from("users")
     .select("id")
     .eq("telegram_id", telegram_id)
     .single();
 
-  console.log("👤 USER FOUND:", user);
-  console.log("❌ USER ERROR:", uErr);
+  console.log("👤 USER:", user, "ERROR:", error);
 
   if (!user) return res.status(400).json({ ok: false });
 
-  const { error } = await supabase
+  const { error: upErr } = await supabase
     .from("user_checklist_items")
     .upsert(
       {
@@ -140,8 +155,8 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
       { onConflict: "user_id,checklist_item_id" }
     );
 
-  if (error) {
-    console.log("❌ UPSERT ERROR:", error);
+  if (upErr) {
+    console.log("❌ UPSERT ERROR:", upErr);
     return res.status(500).json({ ok: false });
   }
 
