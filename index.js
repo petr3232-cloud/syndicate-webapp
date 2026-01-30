@@ -70,7 +70,8 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
+  if (!checkTelegramAuth(initData))
+    return res.status(403).json({ ok: false });
 
   const params = new URLSearchParams(initData);
   const tgUser = JSON.parse(params.get("user"));
@@ -94,6 +95,7 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
+
     user = insert.data;
   }
 
@@ -119,15 +121,11 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.json({ ok: false });
-
   const { data: task } = await supabase
     .from("tasks")
     .select("*")
     .eq("day", day)
     .single();
-
-  if (!task) return res.json({ ok: false });
 
   const { data: items } = await supabase
     .from("task_checklist_items")
@@ -148,7 +146,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   res.json({
     ok: true,
     task,
-    checklist: (items || []).map(i => ({
+    checklist: items.map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] || false
@@ -156,11 +154,10 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE + DAILY REPORT ================= */
+/* ================= CHECKLIST TOGGLE (ГЛАВНОЕ) ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
-  const today = new Date().toISOString().slice(0, 10);
 
   console.log("🟡 TOGGLE:", checklist_id, done);
 
@@ -170,74 +167,58 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.status(400).json({ ok: false });
+  // сохраняем чеклист
+  await supabase.from("user_checklist_items").upsert(
+    {
+      user_id: user.id,
+      checklist_item_id: checklist_id,
+      done
+    },
+    { onConflict: "user_id,checklist_item_id" }
+  );
 
-  await supabase
-    .from("user_checklist_items")
-    .upsert(
-      {
-        user_id: user.id,
-        checklist_item_id: checklist_id,
-        done
-      },
-      { onConflict: "user_id,checklist_item_id" }
-    );
+  // получаем task_id
+  const { data: item } = await supabase
+    .from("task_checklist_items")
+    .select("task_id")
+    .eq("id", checklist_id)
+    .single();
 
+  const taskId = item.task_id;
+
+  // считаем выполненные пункты
   const { data: completed } = await supabase
     .from("user_checklist_items")
     .select("id")
     .eq("user_id", user.id)
-    .eq("done", true);
+    .eq("done", true)
+    .in(
+      "checklist_item_id",
+      supabase
+        .from("task_checklist_items")
+        .select("id")
+        .eq("task_id", taskId)
+    );
 
-  const completedCount = completed?.length || 0;
+  const completedCount = completed.length;
   console.log("📊 COMPLETED COUNT:", completedCount);
 
   if (completedCount >= 3) {
-    const { data: exists } = await supabase
-      .from("daily_reports")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("date", today)
-      .maybeSingle();
-
-    if (!exists) {
-      await supabase.from("daily_reports").insert({
+    await supabase.from("daily_reports").upsert(
+      {
         user_id: user.id,
-        date: today
-      });
-      console.log("📝 DAILY REPORT SAVED");
-    }
+        task_id: taskId,
+        checklist_done_count: completedCount,
+        checklist_completed: true,
+        can_open_report: true
+      },
+      { onConflict: "user_id,task_id" }
+    );
+
+    console.log("📝 DAILY REPORT SAVED");
   }
 
-  res.json({
-    ok: true,
-    completed_count: completedCount,
-    can_send_report: completedCount >= 3
-  });
-});
-
-/* ================= DAILY REPORT STATUS ================= */
-app.get("/daily-report/status", requireAuth, async (req, res) => {
-  const { telegram_id } = req.user;
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  const { data: report } = await supabase
-    .from("daily_reports")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("date", today)
-    .maybeSingle();
-
-  res.json({
-    ok: true,
-    already_sent: !!report
-  });
+  res.json({ ok: true });
 });
 
 /* ================= START ================= */
