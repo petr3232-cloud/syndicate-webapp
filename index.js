@@ -17,20 +17,6 @@ const supabase = createClient(
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ================= PROCESS GUARD ================= */
-process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received. Railway is stopping the container.");
-});
-
-process.on("SIGINT", () => {
-  console.log("🛑 SIGINT received.");
-});
-
-/* ================= KEEP ALIVE ================= */
-setInterval(() => {
-  console.log("⏱ keep-alive tick");
-}, 30000);
-
 /* ================= HEALTH ================= */
 app.get("/health", (_, res) => {
   console.log("💓 HEALTH CHECK HIT");
@@ -88,7 +74,6 @@ app.get("/", (_, res) => {
 app.post("/auth", async (req, res) => {
   const { initData } = req.body;
   if (!initData) return res.status(400).json({ ok: false });
-
   if (!checkTelegramAuth(initData))
     return res.status(403).json({ ok: false });
 
@@ -114,7 +99,6 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
-
     user = insert.data;
   }
 
@@ -125,6 +109,56 @@ app.post("/auth", async (req, res) => {
   );
 
   res.json({ ok: true, token });
+});
+
+/* ================= TASK BY DAY (КЛЮЧЕВОЕ!) ================= */
+app.get("/task/:day", requireAuth, async (req, res) => {
+  const day = Number(req.params.day);
+  const { telegram_id } = req.user;
+
+  console.log("📅 OPEN DAY:", day, "TG:", telegram_id);
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  if (!user) return res.json({ ok: false });
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("day", day)
+    .single();
+
+  if (!task) return res.json({ ok: false });
+
+  const { data: items } = await supabase
+    .from("task_checklist_items")
+    .select("id, title, position")
+    .eq("task_id", task.id)
+    .order("position");
+
+  const { data: marks } = await supabase
+    .from("user_checklist_items")
+    .select("checklist_item_id, done")
+    .eq("user_id", user.id);
+
+  const doneMap = {};
+  (marks || []).forEach(m => {
+    doneMap[m.checklist_item_id] = m.done === true;
+  });
+
+  res.json({
+    ok: true,
+    task,
+    checklist: (items || []).map(i => ({
+      id: i.id,
+      title: i.title,
+      done: doneMap[i.id] || false
+    }))
+  });
 });
 
 /* ================= CHECKLIST TOGGLE ================= */
@@ -140,10 +174,7 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) {
-    console.log("❌ USER NOT FOUND");
-    return res.status(400).json({ ok: false });
-  }
+  if (!user) return res.status(400).json({ ok: false });
 
   const { error } = await supabase
     .from("user_checklist_items")
@@ -157,11 +188,10 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     );
 
   if (error) {
-    console.log("❌ UPSERT ERROR:", error);
+    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
     return res.status(500).json({ ok: false });
   }
 
-  console.log("✅ CHECKLIST SAVED");
   res.json({ ok: true });
 });
 
