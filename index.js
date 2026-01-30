@@ -121,11 +121,15 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
+  if (!user) return res.json({ ok: false });
+
   const { data: task } = await supabase
     .from("tasks")
     .select("*")
     .eq("day", day)
     .single();
+
+  if (!task) return res.json({ ok: false });
 
   const { data: items } = await supabase
     .from("task_checklist_items")
@@ -143,10 +147,18 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     doneMap[m.checklist_item_id] = m.done === true;
   });
 
+  const { data: report } = await supabase
+    .from("daily_reports")
+    .select("can_open_report")
+    .eq("user_id", user.id)
+    .eq("task_id", task.id)
+    .maybeSingle();
+
   res.json({
     ok: true,
     task,
-    checklist: items.map(i => ({
+    can_open_report: report?.can_open_report ?? false,
+    checklist: (items || []).map(i => ({
       id: i.id,
       title: i.title,
       done: doneMap[i.id] || false
@@ -154,7 +166,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE (ГЛАВНОЕ) ================= */
+/* ================= CHECKLIST TOGGLE ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -167,17 +179,19 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  // сохраняем чеклист
-  await supabase.from("user_checklist_items").upsert(
-    {
-      user_id: user.id,
-      checklist_item_id: checklist_id,
-      done
-    },
-    { onConflict: "user_id,checklist_item_id" }
-  );
+  if (!user) return res.status(400).json({ ok: false });
 
-  // получаем task_id
+  await supabase
+    .from("user_checklist_items")
+    .upsert(
+      {
+        user_id: user.id,
+        checklist_item_id: checklist_id,
+        done
+      },
+      { onConflict: "user_id,checklist_item_id" }
+    );
+
   const { data: item } = await supabase
     .from("task_checklist_items")
     .select("task_id")
@@ -186,10 +200,9 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
 
   const taskId = item.task_id;
 
-  // считаем выполненные пункты
-  const { data: completed } = await supabase
+  const { count: doneCount } = await supabase
     .from("user_checklist_items")
-    .select("id")
+    .select("*", { count: "exact", head: true })
     .eq("user_id", user.id)
     .eq("done", true)
     .in(
@@ -200,25 +213,30 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
         .eq("task_id", taskId)
     );
 
-  const completedCount = completed.length;
-  console.log("📊 COMPLETED COUNT:", completedCount);
+  const { count: totalCount } = await supabase
+    .from("task_checklist_items")
+    .select("*", { count: "exact", head: true })
+    .eq("task_id", taskId);
 
-  if (completedCount >= 3) {
-    await supabase.from("daily_reports").upsert(
+  const canOpen = doneCount >= 3;
+
+  await supabase
+    .from("daily_reports")
+    .upsert(
       {
         user_id: user.id,
         task_id: taskId,
-        checklist_done_count: completedCount,
-        checklist_completed: true,
-        can_open_report: true
+        checklist_done_count: doneCount,
+        checklist_total_count: totalCount,
+        checklist_completed: doneCount === totalCount,
+        can_open_report: canOpen
       },
       { onConflict: "user_id,task_id" }
     );
 
-    console.log("📝 DAILY REPORT SAVED");
-  }
+  console.log("📝 DAILY REPORT UPSERTED");
 
-  res.json({ ok: true });
+  res.json({ ok: true, can_open_report: canOpen });
 });
 
 /* ================= START ================= */
