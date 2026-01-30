@@ -99,6 +99,7 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
+
     user = insert.data;
   }
 
@@ -111,7 +112,7 @@ app.post("/auth", async (req, res) => {
   res.json({ ok: true, token });
 });
 
-/* ================= TASK BY DAY (КЛЮЧЕВОЕ!) ================= */
+/* ================= TASK BY DAY ================= */
 app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
@@ -161,12 +162,17 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE ================= */
+/* ================= CHECKLIST TOGGLE (КЛЮЧЕВОЕ) ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
   console.log("🟡 TOGGLE:", checklist_id, done);
+
+  if (typeof checklist_id !== "string" || typeof done !== "boolean") {
+    console.log("❌ BAD BODY");
+    return res.status(400).json({ ok: false });
+  }
 
   const { data: user } = await supabase
     .from("users")
@@ -174,24 +180,31 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .eq("telegram_id", telegram_id)
     .single();
 
-  if (!user) return res.status(400).json({ ok: false });
+  if (!user) {
+    console.log("❌ USER NOT FOUND");
+    return res.status(400).json({ ok: false });
+  }
 
-  const { error } = await supabase
+  const payload = {
+    user_id: user.id,
+    checklist_item_id: checklist_id,
+    done: done,
+    completed_at: done ? new Date().toISOString() : null
+  };
+
+  const { data, error } = await supabase
     .from("user_checklist_items")
-    .upsert(
-      {
-        user_id: user.id,
-        checklist_item_id: checklist_id,
-        done: done
-      },
-      { onConflict: "user_id,checklist_item_id" }
-    );
+    .upsert(payload, {
+      onConflict: "user_id,checklist_item_id"
+    })
+    .select();
 
   if (error) {
-    console.log("❌ CHECKLIST SAVE ERROR:", error.message);
+    console.log("❌ UPSERT ERROR:", error);
     return res.status(500).json({ ok: false });
   }
 
+  console.log("✅ UPSERT OK:", data);
   res.json({ ok: true });
 });
 
