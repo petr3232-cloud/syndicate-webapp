@@ -1,10 +1,16 @@
 console.log("🟢 BOOT: starting app");
 
-process.on("uncaughtException", err => {
-  console.error("🔴 UNCAUGHT EXCEPTION:", err);
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ UNHANDLED REJECTION:", reason);
 });
-process.on("unhandledRejection", err => {
-  console.error("🔴 UNHANDLED REJECTION:", err);
+
+process.on("uncaughtException", (err) => {
+  console.error("❌ UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("SIGTERM", () => {
+  console.warn("⚠️ SIGTERM RECEIVED");
+  process.exit(0);
 });
 
 const express = require("express");
@@ -17,16 +23,12 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 /* ================= SUPABASE ================= */
-let supabase;
-try {
-  supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY
-  );
-  console.log("🟢 SUPABASE INIT OK");
-} catch (e) {
-  console.error("🔴 SUPABASE INIT FAILED", e);
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SECRET_KEY
+);
+
+console.log("🟢 SUPABASE INIT OK");
 
 /* ================= MIDDLEWARE ================= */
 app.use(express.json());
@@ -64,15 +66,15 @@ function checkTelegramAuth(initData) {
 
 /* ================= JWT ================= */
 function requireAuth(req, res, next) {
-  try {
-    const header = req.headers.authorization;
-    if (!header) return res.status(401).json({ ok: false });
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ ok: false });
 
+  try {
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (e) {
-    console.error("🔴 AUTH ERROR", e);
+    console.error("JWT ERROR:", e);
     return res.status(401).json({ ok: false });
   }
 }
@@ -84,11 +86,9 @@ app.get("/", (_, res) => {
 
 /* ================= AUTH ================= */
 app.post("/auth", async (req, res) => {
-  console.log("🔐 AUTH START");
   try {
     const { initData } = req.body;
     if (!initData) return res.status(400).json({ ok: false });
-
     if (!checkTelegramAuth(initData))
       return res.status(403).json({ ok: false });
 
@@ -114,6 +114,7 @@ app.post("/auth", async (req, res) => {
         })
         .select("id")
         .single();
+
       user = insert.data;
     }
 
@@ -123,38 +124,12 @@ app.post("/auth", async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    console.log("🟢 AUTH OK");
     res.json({ ok: true, token });
   } catch (e) {
-    console.error("🔴 AUTH FAILED", e);
+    console.error("AUTH ERROR:", e);
     res.status(500).json({ ok: false });
   }
 });
-
-/* ================= STORAGE CHECK (PRIVATE BUCKET) ================= */
-app.get("/debug/storage", async (_, res) => {
-  console.log("📦 STORAGE CHECK");
-  try {
-    const { data, error } = await supabase.storage
-      .from("daily-reports")
-      .list("", { limit: 1 });
-
-    if (error) {
-      console.error("🔴 STORAGE ERROR", error);
-      return res.status(500).json({ ok: false, error });
-    }
-
-    res.json({ ok: true, data });
-  } catch (e) {
-    console.error("🔴 STORAGE EXCEPTION", e);
-    res.status(500).json({ ok: false });
-  }
-});
-
-/* ================= KEEP ALIVE ================= */
-setInterval(() => {
-  console.log("🟢 KEEPALIVE TICK", new Date().toISOString());
-}, 30000);
 
 /* ================= START ================= */
 console.log("🟢 BEFORE LISTEN");
@@ -162,3 +137,8 @@ console.log("🟢 BEFORE LISTEN");
 app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 SERVER STARTED ON", PORT);
 });
+
+/* ================= KEEPALIVE ================= */
+setInterval(() => {
+  console.log("🟢 KEEPALIVE TICK", new Date().toISOString());
+}, 30_000);
