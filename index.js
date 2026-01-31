@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -16,6 +17,8 @@ const supabase = createClient(
 /* ================= MIDDLEWARE ================= */
 app.use(express.json());
 app.use(express.static("public"));
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 /* ================= HEALTH ================= */
 app.get("/health", (_, res) => {
@@ -159,7 +162,7 @@ app.get("/task/:day", requireAuth, async (req, res) => {
   });
 });
 
-/* ================= CHECKLIST TOGGLE + DAILY REPORT ================= */
+/* ================= CHECKLIST TOGGLE ================= */
 app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
@@ -203,9 +206,36 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
   res.json({ ok: true, can_open_report: completedCount >= 3 });
 });
 
+/* ================= PHOTO UPLOAD (PRIVATE BUCKET) ================= */
+app.post(
+  "/daily-report/upload-photo",
+  requireAuth,
+  upload.single("photo"),
+  async (req, res) => {
+    const { telegram_id } = req.user;
+
+    const { data: user } = await supabase
+      .from("users")
+      .select("id")
+      .eq("telegram_id", telegram_id)
+      .single();
+
+    const fileExt = req.file.originalname.split(".").pop();
+    const filePath = `${user.id}/${Date.now()}.${fileExt}`;
+
+    await supabase.storage
+      .from("daily-reports")
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype
+      });
+
+    res.json({ ok: true, photos: filePath });
+  }
+);
+
 /* ================= DAILY REPORT SUBMIT ================= */
 app.post("/daily-report/submit", requireAuth, async (req, res) => {
-  const { report_text, photo_url, task_id } = req.body;
+  const { report_text, photos, task_id } = req.body;
   const { telegram_id } = req.user;
 
   const { data: user } = await supabase
@@ -218,13 +248,12 @@ app.post("/daily-report/submit", requireAuth, async (req, res) => {
     .from("daily_reports")
     .update({
       report_text,
-      photo_url,
+      photos,
       submitted_at: new Date().toISOString()
     })
     .eq("user_id", user.id)
     .eq("task_id", task_id);
 
-  console.log("📨 DAILY REPORT SUBMITTED");
   res.json({ ok: true });
 });
 
