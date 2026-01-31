@@ -11,6 +11,7 @@ body { background:#0f0f0f; color:#fff; font-family:Arial; padding:16px }
 .check { margin:8px 0; cursor:pointer }
 .check.done { opacity:.6; text-decoration:line-through }
 textarea { width:100%; height:80px; margin-top:10px }
+input[type=file] { margin-top:10px }
 </style>
 </head>
 <body>
@@ -26,12 +27,12 @@ tg.ready();
 let TOKEN = null;
 let STATE = null;
 let CURRENT_DAY = 1;
+let PHOTO_PATH = null;
 
 function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
-      "Content-Type":"application/json",
       Authorization:"Bearer " + TOKEN
     }
   }).then(r => r.json());
@@ -70,8 +71,7 @@ function loadDay(day) {
 function render() {
   if (!STATE?.ok) return output.innerHTML = "Нет данных";
 
-  let html = `<h2>${STATE.task.title}</h2>`;
-  html += "<h3>Чек‑лист</h3>";
+  let html = `<h2>${STATE.task.title}</h2><h3>Чек‑лист</h3>`;
 
   STATE.checklist.forEach(i => {
     html += `
@@ -84,6 +84,8 @@ function render() {
     html += `
       <h3>Отчёт</h3>
       <textarea id="reportText" placeholder="Текст отчёта"></textarea>
+      <input type="file" id="photoInput" accept="image/*">
+      <div class="btn" onclick="uploadPhoto()">Загрузить фото</div>
       <div class="btn" onclick="submitReport()">Отправить отчёт</div>
     `;
   }
@@ -101,20 +103,42 @@ function toggle(id) {
   render();
   api("/checklist/toggle", {
     method:"POST",
+    headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({ checklist_id:id, done:item.done })
-  }).then(loadDay.bind(null, CURRENT_DAY));
+  }).then(() => loadDay(CURRENT_DAY));
+}
+
+function uploadPhoto() {
+  const file = document.getElementById("photoInput").files[0];
+  if (!file) return alert("Выбери фото");
+
+  const form = new FormData();
+  form.append("photo", file);
+
+  fetch("/daily-report/upload-photo", {
+    method:"POST",
+    headers:{ Authorization:"Bearer " + TOKEN },
+    body: form
+  })
+  .then(r => r.json())
+  .then(d => {
+    PHOTO_PATH = d.photos;
+    alert("Фото загружено");
+  });
 }
 
 function submitReport() {
   const text = document.getElementById("reportText").value;
+
   api("/daily-report/submit", {
     method:"POST",
+    headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({
       task_id: STATE.task.id,
       report_text: text,
-      photo_url: null
+      photos: PHOTO_PATH
     })
-  }).then(loadDay.bind(null, CURRENT_DAY));
+  }).then(() => loadDay(CURRENT_DAY));
 }
 </script>
 </body>
