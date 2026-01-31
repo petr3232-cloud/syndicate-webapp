@@ -1,44 +1,44 @@
 const express = require("express");
-const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+/* ===== middleware ===== */
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use(express.static(path.join(__dirname, "public")));
 
-/* ===== MULTER ===== */
+/* ===== multer ===== */
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads"),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + "-" + file.originalname)
+  destination: "uploads/",
+  filename: (_, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  }
 });
 const upload = multer({ storage });
 
-/* ===== HEALTH ===== */
-app.get("/health", (req, res) => {
+console.log("🟢 BOOT: starting app");
+
+/* ===== routes ===== */
+app.get("/health", (_, res) => {
   res.json({ ok: true });
 });
 
-/* ===== FRONT ===== */
-app.get("/", (req, res) => {
-  res.send("SYNDICATE WEBAPP BACKEND OK");
-});
-
-/* ===== AUTH ===== */
-app.post("/auth", (req, res) => {
+app.post("/auth", (_, res) => {
   res.json({ token: "dev-token" });
 });
 
-/* ===== TASK ===== */
 app.get("/task/:day", (req, res) => {
   res.json({
     ok: true,
-    task: {
-      id: Number(req.params.day),
-      title: `Задание дня ${req.params.day}`
-    },
+    task: { id: 1, title: `Задание дня ${req.params.day}` },
     checklist: [
       { id: "1", title: "Сделать шаг 1", done: false },
       { id: "2", title: "Сделать шаг 2", done: false }
@@ -48,30 +48,33 @@ app.get("/task/:day", (req, res) => {
   });
 });
 
-/* ===== CHECKLIST ===== */
-app.post("/checklist/toggle", (req, res) => {
+app.post("/checklist/toggle", (_, res) => {
   res.json({ ok: true });
 });
 
-/* ===== PHOTO UPLOAD ===== */
+/* ===== upload photo ===== */
 app.post(
   "/daily-report/upload-photo",
   upload.single("photo"),
   (req, res) => {
     res.json({
       ok: true,
-      photos: ["/uploads/" + req.file.filename]
+      photos: [`/uploads/${req.file.filename}`]
     });
   }
 );
 
-/* ===== REPORT ===== */
 app.post("/daily-report/submit", (req, res) => {
-  console.log("REPORT:", req.body);
+  console.log("📩 REPORT:", req.body);
   res.json({ ok: true });
 });
 
-/* ===== START ===== */
+/* ===== frontend fallback ===== */
+app.get("*", (_, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+/* ===== start ===== */
 app.listen(PORT, () => {
   console.log("🚀 SERVER STARTED ON", PORT);
 });
