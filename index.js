@@ -1,5 +1,12 @@
 console.log("🟢 BOOT: starting app");
 
+process.on("uncaughtException", err => {
+  console.error("🔴 UNCAUGHT EXCEPTION:", err);
+});
+process.on("unhandledRejection", err => {
+  console.error("🔴 UNHANDLED REJECTION:", err);
+});
+
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
@@ -10,12 +17,16 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 /* ================= SUPABASE ================= */
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-);
-
-console.log("🟢 SUPABASE INIT OK");
+let supabase;
+try {
+  supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SECRET_KEY
+  );
+  console.log("🟢 SUPABASE INIT OK");
+} catch (e) {
+  console.error("🔴 SUPABASE INIT FAILED", e);
+}
 
 /* ================= MIDDLEWARE ================= */
 app.use(express.json());
@@ -53,14 +64,15 @@ function checkTelegramAuth(initData) {
 
 /* ================= JWT ================= */
 function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ ok: false });
-
   try {
+    const header = req.headers.authorization;
+    if (!header) return res.status(401).json({ ok: false });
+
     const token = header.replace("Bearer ", "");
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch {
+  } catch (e) {
+    console.error("🔴 AUTH ERROR", e);
     return res.status(401).json({ ok: false });
   }
 }
@@ -72,171 +84,71 @@ app.get("/", (_, res) => {
 
 /* ================= AUTH ================= */
 app.post("/auth", async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
+  console.log("🔐 AUTH START");
+  try {
+    const { initData } = req.body;
+    if (!initData) return res.status(400).json({ ok: false });
 
-  const params = new URLSearchParams(initData);
-  const tgUser = JSON.parse(params.get("user"));
-  const telegramId = String(tgUser.id);
+    if (!checkTelegramAuth(initData))
+      return res.status(403).json({ ok: false });
 
-  let { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegramId)
-    .single();
+    const params = new URLSearchParams(initData);
+    const tgUser = JSON.parse(params.get("user"));
+    const telegramId = String(tgUser.id);
 
-  if (!user) {
-    const insert = await supabase
+    let { data: user } = await supabase
       .from("users")
-      .insert({
-        telegram_id: telegramId,
-        username: tgUser.username ?? null,
-        points: 0,
-        level: "Новичок",
-        is_admin: false
-      })
       .select("id")
+      .eq("telegram_id", telegramId)
       .single();
-    user = insert.data;
+
+    if (!user) {
+      const insert = await supabase
+        .from("users")
+        .insert({
+          telegram_id: telegramId,
+          username: tgUser.username ?? null,
+          points: 0,
+          level: "Новичок",
+          is_admin: false
+        })
+        .select("id")
+        .single();
+      user = insert.data;
+    }
+
+    const token = jwt.sign(
+      { telegram_id: telegramId },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    console.log("🟢 AUTH OK");
+    res.json({ ok: true, token });
+  } catch (e) {
+    console.error("🔴 AUTH FAILED", e);
+    res.status(500).json({ ok: false });
   }
-
-  const token = jwt.sign(
-    { telegram_id: telegramId },
-    process.env.JWT_SECRET,
-    { expiresIn: "30d" }
-  );
-
-  res.json({ ok: true, token });
 });
 
-/* ================= TASK BY DAY ================= */
-app.get("/task/:day", requireAuth, async (req, res) => {
-  const day = Number(req.params.day);
-  const { telegram_id } = req.user;
+/* ================= STORAGE CHECK (PRIVATE BUCKET) ================= */
+app.get("/debug/storage", async (_, res) => {
+  console.log("📦 STORAGE CHECK");
+  try {
+    const { data, error } = await supabase.storage
+      .from("daily-reports")
+      .list("", { limit: 1 });
 
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
+    if (error) {
+      console.error("🔴 STORAGE ERROR", error);
+      return res.status(500).json({ ok: false, error });
+    }
 
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("*")
-    .eq("day", day)
-    .single();
-
-  const { data: items } = await supabase
-    .from("task_checklist_items")
-    .select("id, title, position")
-    .eq("task_id", task.id)
-    .order("position");
-
-  const { data: marks } = await supabase
-    .from("user_checklist_items")
-    .select("checklist_item_id, done")
-    .eq("user_id", user.id);
-
-  const doneMap = {};
-  (marks || []).forEach(m => {
-    doneMap[m.checklist_item_id] = m.done === true;
-  });
-
-  const { data: report } = await supabase
-    .from("daily_reports")
-    .select("can_open_report, submitted_at")
-    .eq("user_id", user.id)
-    .eq("task_id", task.id)
-    .maybeSingle();
-
-  res.json({
-    ok: true,
-    task,
-    checklist: items.map(i => ({
-      id: i.id,
-      title: i.title,
-      done: doneMap[i.id] || false
-    })),
-    can_open_report: report?.can_open_report === true,
-    already_submitted: !!report?.submitted_at
-  });
-});
-
-/* ================= CHECKLIST TOGGLE ================= */
-app.post("/checklist/toggle", requireAuth, async (req, res) => {
-  const { checklist_id, done } = req.body;
-  const { telegram_id } = req.user;
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  await supabase.from("user_checklist_items").upsert(
-    { user_id: user.id, checklist_item_id: checklist_id, done },
-    { onConflict: "user_id,checklist_item_id" }
-  );
-
-  const { data: completed } = await supabase
-    .from("user_checklist_items")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("done", true);
-
-  const completedCount = completed.length;
-
-  const { data: item } = await supabase
-    .from("task_checklist_items")
-    .select("task_id")
-    .eq("id", checklist_id)
-    .single();
-
-  await supabase.from("daily_reports").upsert(
-    {
-      user_id: user.id,
-      task_id: item.task_id,
-      checklist_done_count: completedCount,
-      checklist_completed: completedCount >= 3,
-      can_open_report: completedCount >= 3
-    },
-    { onConflict: "user_id,task_id" }
-  );
-
-  res.json({ ok: true, can_open_report: completedCount >= 3 });
-});
-
-/* ================= DAILY REPORT SUBMIT ================= */
-app.post("/daily-report/submit", requireAuth, async (req, res) => {
-  const { report_text, photos, task_id } = req.body;
-  const { telegram_id } = req.user;
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  await supabase
-    .from("daily_reports")
-    .update({
-      report_text,
-      photos,
-      submitted_at: new Date().toISOString()
-    })
-    .eq("user_id", user.id)
-    .eq("task_id", task_id);
-
-  console.log("📨 DAILY REPORT SUBMITTED");
-  res.json({ ok: true });
-});
-
-/* ================= START ================= */
-console.log("🟢 BEFORE LISTEN");
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 SERVER STARTED ON", PORT);
+    res.json({ ok: true, data });
+  } catch (e) {
+    console.error("🔴 STORAGE EXCEPTION", e);
+    res.status(500).json({ ok: false });
+  }
 });
 
 /* ================= KEEP ALIVE ================= */
@@ -244,16 +156,9 @@ setInterval(() => {
   console.log("🟢 KEEPALIVE TICK", new Date().toISOString());
 }, 30000);
 
-/* ================= GRACEFUL ================= */
-process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM RECEIVED");
-});
-process.on("SIGINT", () => {
-  console.log("🛑 SIGINT RECEIVED");
-});
-process.on("uncaughtException", err => {
-  console.error("🔥 UNCAUGHT", err);
-});
-process.on("unhandledRejection", err => {
-  console.error("🔥 UNHANDLED", err);
+/* ================= START ================= */
+console.log("🟢 BEFORE LISTEN");
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("🚀 SERVER STARTED ON", PORT);
 });
