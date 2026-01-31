@@ -1,45 +1,17 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>SYNDICATE</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    body {
-      background:#0f0f0f;
-      color:#fff;
-      font-family:Arial, sans-serif;
-      padding:16px;
-    }
-    .btn {
-      background:#1e1e1e;
-      padding:12px;
-      border-radius:10px;
-      margin:6px 0;
-      text-align:center;
-      cursor:pointer;
-    }
-    .btn.active {
-      background:#2c2c2c;
-    }
-    .check {
-      margin:8px 0;
-      padding:8px;
-      cursor:pointer;
-      user-select:none;
-    }
-    .check.done {
-      opacity:0.6;
-      text-decoration:line-through;
-    }
-    .report {
-      margin-top:12px;
-      padding:10px;
-      background:#163d1f;
-      border-radius:8px;
-      color:#9cffb2;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>SYNDICATE</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+body { background:#0f0f0f; color:#fff; font-family:Arial; padding:16px }
+.btn { background:#1e1e1e; padding:12px; border-radius:10px; margin:6px 0; cursor:pointer }
+.btn.active { background:#2c2c2c }
+.check { margin:8px 0; cursor:pointer }
+.check.done { opacity:.6; text-decoration:line-through }
+textarea { width:100%; height:80px; margin-top:10px }
+</style>
 </head>
 <body>
 
@@ -54,9 +26,7 @@ tg.ready();
 let TOKEN = null;
 let STATE = null;
 let CURRENT_DAY = 1;
-let CAN_REPORT = false;
 
-/* ===== API ===== */
 function api(url, options={}) {
   return fetch(url, {
     ...options,
@@ -67,7 +37,7 @@ function api(url, options={}) {
   }).then(r => r.json());
 }
 
-/* ===== AUTH ===== */
+/* AUTH */
 fetch("/auth", {
   method:"POST",
   headers:{ "Content-Type":"application/json" },
@@ -80,80 +50,72 @@ fetch("/auth", {
   loadDay(1);
 });
 
-/* ===== DAYS ===== */
 function renderDays() {
   let html = "";
-  for (let i = 1; i <= 7; i++) {
-    html += `
-      <div class="btn ${i===CURRENT_DAY?"active":""}"
-           onclick="loadDay(${i})">
-        День ${i}
-      </div>`;
+  for (let i=1;i<=7;i++) {
+    html += `<div class="btn ${i===CURRENT_DAY?"active":""}" onclick="loadDay(${i})">День ${i}</div>`;
   }
   days.innerHTML = html;
 }
 
-/* ===== LOAD DAY ===== */
 function loadDay(day) {
   CURRENT_DAY = day;
   renderDays();
-
   api(`/task/${day}`).then(d => {
-    if (!d.ok) {
-      output.innerHTML = "<p>Нет данных</p>";
-      return;
-    }
     STATE = d;
-    CAN_REPORT = false;
     render();
   });
 }
 
-/* ===== RENDER ===== */
 function render() {
-  const { task, checklist } = STATE;
+  if (!STATE?.ok) return output.innerHTML = "Нет данных";
 
-  let html = `
-    <h2>ДЕНЬ ${task.day} — ${task.title}</h2>
-    <p>${(task.description || "").replace(/\n/g,"<br>")}</p>
-    <h3>Чек‑лист</h3>
-  `;
+  let html = `<h2>${STATE.task.title}</h2>`;
+  html += "<h3>Чек‑лист</h3>";
 
-  checklist.forEach(i => {
+  STATE.checklist.forEach(i => {
     html += `
-      <div class="check ${i.done ? "done":""}"
-           onclick="toggle('${i.id}')">
-        ${i.done ? "✅":"⬜"} ${i.title}
+      <div class="check ${i.done?"done":""}" onclick="toggle('${i.id}')">
+        ${i.done?"✅":"⬜"} ${i.title}
       </div>`;
   });
 
-  if (CAN_REPORT) {
-    html += `<div class="report">📝 Можно отправить отчёт</div>`;
+  if (STATE.can_open_report && !STATE.already_submitted) {
+    html += `
+      <h3>Отчёт</h3>
+      <textarea id="reportText" placeholder="Текст отчёта"></textarea>
+      <div class="btn" onclick="submitReport()">Отправить отчёт</div>
+    `;
+  }
+
+  if (STATE.already_submitted) {
+    html += `<p>✅ Отчёт отправлен</p>`;
   }
 
   output.innerHTML = html;
 }
 
-/* ===== TOGGLE ===== */
 function toggle(id) {
   const item = STATE.checklist.find(i => i.id === id);
-  if (!item) return;
-
   item.done = !item.done;
   render();
-
   api("/checklist/toggle", {
     method:"POST",
+    body: JSON.stringify({ checklist_id:id, done:item.done })
+  }).then(loadDay.bind(null, CURRENT_DAY));
+}
+
+function submitReport() {
+  const text = document.getElementById("reportText").value;
+  api("/daily-report/submit", {
+    method:"POST",
     body: JSON.stringify({
-      checklist_id: id,
-      done: item.done
+      task_id: STATE.task.id,
+      report_text: text,
+      photo_url: null
     })
-  }).then(r => {
-    CAN_REPORT = r.can_open_report === true;
-    render();
-  });
+  }).then(loadDay.bind(null, CURRENT_DAY));
 }
 </script>
-
 </body>
 </html>
