@@ -4,16 +4,38 @@
 <meta charset="UTF-8">
 <title>SYNDICATE</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
-body { background:#0f0f0f; color:#fff; font-family:Arial; padding:16px }
-.btn { background:#1e1e1e; padding:12px; border-radius:10px; margin:6px 0; cursor:pointer }
+body {
+  background:#0f0f0f;
+  color:#fff;
+  font-family:Arial;
+  padding:16px
+}
+.btn {
+  background:#1e1e1e;
+  padding:12px;
+  border-radius:10px;
+  margin:6px 0;
+  cursor:pointer;
+}
 .btn.active { background:#2c2c2c }
 .check { margin:8px 0; cursor:pointer }
 .check.done { opacity:.6; text-decoration:line-through }
-textarea { width:100%; height:80px; margin-top:10px }
+textarea {
+  width:100%;
+  height:80px;
+  margin-top:10px
+}
 input[type=file] { margin-top:10px }
+.photo-preview {
+  margin-top:10px;
+  max-width:100%;
+  border-radius:8px;
+}
 </style>
 </head>
+
 <body>
 
 <h1>SYNDICATE</h1>
@@ -29,16 +51,18 @@ let STATE = null;
 let CURRENT_DAY = 1;
 let PHOTO_PATH = null;
 
+/* ========= API ========= */
 function api(url, options={}) {
   return fetch(url, {
     ...options,
     headers: {
-      Authorization:"Bearer " + TOKEN
+      ...(options.headers || {}),
+      Authorization: "Bearer " + TOKEN
     }
   }).then(r => r.json());
 }
 
-/* AUTH */
+/* ========= AUTH ========= */
 fetch("/auth", {
   method:"POST",
   headers:{ "Content-Type":"application/json" },
@@ -51,16 +75,22 @@ fetch("/auth", {
   loadDay(1);
 });
 
+/* ========= DAYS ========= */
 function renderDays() {
   let html = "";
   for (let i=1;i<=7;i++) {
-    html += `<div class="btn ${i===CURRENT_DAY?"active":""}" onclick="loadDay(${i})">День ${i}</div>`;
+    html += `
+      <div class="btn ${i===CURRENT_DAY?"active":""}"
+           onclick="loadDay(${i})">
+        День ${i}
+      </div>`;
   }
   days.innerHTML = html;
 }
 
 function loadDay(day) {
   CURRENT_DAY = day;
+  PHOTO_PATH = null;
   renderDays();
   api(`/task/${day}`).then(d => {
     STATE = d;
@@ -68,14 +98,22 @@ function loadDay(day) {
   });
 }
 
+/* ========= RENDER ========= */
 function render() {
-  if (!STATE?.ok) return output.innerHTML = "Нет данных";
+  if (!STATE?.ok) {
+    output.innerHTML = "Нет данных";
+    return;
+  }
 
-  let html = `<h2>${STATE.task.title}</h2><h3>Чек‑лист</h3>`;
+  let html = `
+    <h2>${STATE.task.title}</h2>
+    <h3>Чек‑лист</h3>
+  `;
 
   STATE.checklist.forEach(i => {
     html += `
-      <div class="check ${i.done?"done":""}" onclick="toggle('${i.id}')">
+      <div class="check ${i.done?"done":""}"
+           onclick="toggle('${i.id}')">
         ${i.done?"✅":"⬜"} ${i.title}
       </div>`;
   });
@@ -83,10 +121,21 @@ function render() {
   if (STATE.can_open_report && !STATE.already_submitted) {
     html += `
       <h3>Отчёт</h3>
-      <textarea id="reportText" placeholder="Текст отчёта"></textarea>
+
+      <textarea id="reportText"
+        placeholder="Текст отчёта"></textarea>
+
       <input type="file" id="photoInput" accept="image/*">
-      <div class="btn" onclick="uploadPhoto()">Загрузить фото</div>
-      <div class="btn" onclick="submitReport()">Отправить отчёт</div>
+
+      <div class="btn" onclick="uploadPhoto()">
+        📷 Загрузить фото
+      </div>
+
+      <div id="photoPreview"></div>
+
+      <div class="btn" onclick="submitReport()">
+        🚀 Отправить отчёт
+      </div>
     `;
   }
 
@@ -97,38 +146,59 @@ function render() {
   output.innerHTML = html;
 }
 
+/* ========= CHECKLIST ========= */
 function toggle(id) {
   const item = STATE.checklist.find(i => i.id === id);
   item.done = !item.done;
   render();
+
   api("/checklist/toggle", {
     method:"POST",
     headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ checklist_id:id, done:item.done })
+    body: JSON.stringify({
+      checklist_id: id,
+      done: item.done
+    })
   }).then(() => loadDay(CURRENT_DAY));
 }
 
+/* ========= PHOTO UPLOAD ========= */
 function uploadPhoto() {
-  const file = document.getElementById("photoInput").files[0];
-  if (!file) return alert("Выбери фото");
+  const input = document.getElementById("photoInput");
+  const file = input.files[0];
+
+  if (!file) {
+    alert("Выбери фото");
+    return;
+  }
 
   const form = new FormData();
   form.append("photo", file);
 
   fetch("/daily-report/upload-photo", {
     method:"POST",
-    headers:{ Authorization:"Bearer " + TOKEN },
+    headers:{
+      Authorization: "Bearer " + TOKEN
+    },
     body: form
   })
   .then(r => r.json())
   .then(d => {
-    PHOTO_PATH = d.photos;
-    alert("Фото загружено");
-  });
+    PHOTO_PATH = d.photo; // <-- ВАЖНО
+    document.getElementById("photoPreview").innerHTML =
+      `<img src="${PHOTO_PATH}" class="photo-preview">`;
+  })
+  .catch(() => alert("Ошибка загрузки фото"));
 }
 
+/* ========= SUBMIT ========= */
 function submitReport() {
   const text = document.getElementById("reportText").value;
+
+  if (!text && !PHOTO_PATH) {
+    alert("Отчёт пустой");
+    return;
+  }
 
   api("/daily-report/submit", {
     method:"POST",
@@ -136,10 +206,11 @@ function submitReport() {
     body: JSON.stringify({
       task_id: STATE.task.id,
       report_text: text,
-      photos: PHOTO_PATH
+      photo_url: PHOTO_PATH
     })
   }).then(() => loadDay(CURRENT_DAY));
 }
 </script>
+
 </body>
 </html>
