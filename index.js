@@ -1,282 +1,95 @@
-const express = require("express");
-const crypto = require("crypto");
-const path = require("path");
-const jwt = require("jsonwebtoken");
-const multer = require("multer");
-const { createClient } = require("@supabase/supabase-js");
+// index.js
+import express from "express";
+import fetch from "node-fetch";
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// ===== MIDDLEWARE =====
+app.use(express.json());
+
+// ===== SIMPLE LOG =====
 console.log("🟢 BOOT: starting app");
 
-/* ================= SUPABASE ================= */
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY // SERVICE ROLE
-);
-
-console.log("🟢 SUPABASE INIT OK");
-
-/* ================= MIDDLEWARE ================= */
-app.use(express.json());
-app.use(express.static("public"));
-
-const upload = multer({ storage: multer.memoryStorage() });
-
-/* ================= HEALTH ================= */
-app.get("/health", (_, res) => {
+// ===== HEALTHCHECK =====
+app.get("/health", (req, res) => {
   console.log("💓 HEALTH HIT");
-  res.status(200).send("OK");
+  res.json({ ok: true });
 });
 
-/* ================= TELEGRAM AUTH ================= */
-function checkTelegramAuth(initData) {
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  params.delete("hash");
-
-  const dataCheckString = [...params.entries()]
-    .sort()
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-
-  const secret = crypto
-    .createHmac("sha256", "WebAppData")
-    .update(process.env.BOT_TOKEN)
-    .digest();
-
-  const hmac = crypto
-    .createHmac("sha256", secret)
-    .update(dataCheckString)
-    .digest("hex");
-
-  return hmac === hash;
-}
-
-/* ================= JWT ================= */
-function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ ok: false });
-
-  try {
-    const token = header.replace("Bearer ", "");
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    return res.status(401).json({ ok: false });
-  }
-}
-
-/* ================= MAIN ================= */
-app.get("/", (_, res) => {
-  res.sendFile(path.resolve("public/index.html"));
-});
-
-/* ================= AUTH ================= */
+// ===== AUTH =====
 app.post("/auth", async (req, res) => {
-  const { initData } = req.body;
-  if (!initData) return res.status(400).json({ ok: false });
-  if (!checkTelegramAuth(initData)) return res.status(403).json({ ok: false });
+  try {
+    const { initData } = req.body;
 
-  const params = new URLSearchParams(initData);
-  const tgUser = JSON.parse(params.get("user"));
-  const telegramId = String(tgUser.id);
+    if (!initData) {
+      return res.status(400).json({ ok: false, error: "NO_INIT_DATA" });
+    }
 
-  let { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegramId)
-    .single();
-
-  if (!user) {
-    const insert = await supabase
-      .from("users")
-      .insert({
-        telegram_id: telegramId,
-        username: tgUser.username ?? null,
-        points: 0,
-        level: "Новичок",
-        is_admin: false
-      })
-      .select("id")
-      .single();
-    user = insert.data;
+    // 🔴 временно: фейковый токен (как у тебя раньше работало)
+    // потом подключим реальную проверку Telegram
+    return res.json({
+      ok: true,
+      token: "DEV_TOKEN"
+    });
+  } catch (e) {
+    console.error("AUTH ERROR", e);
+    res.status(500).json({ ok: false });
   }
-
-  const token = jwt.sign(
-    { telegram_id: telegramId },
-    process.env.JWT_SECRET,
-    { expiresIn: "30d" }
-  );
-
-  res.json({ ok: true, token });
 });
 
-/* ================= TASK ================= */
-app.get("/task/:day", requireAuth, async (req, res) => {
+// ===== MOCK AUTH MIDDLEWARE =====
+app.use((req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth) {
+    return res.status(401).json({ ok: false, error: "NO_AUTH" });
+  }
+  next();
+});
+
+// ===== TASK BY DAY =====
+app.get("/task/:day", async (req, res) => {
   const day = Number(req.params.day);
-  const { telegram_id } = req.user;
 
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  const { data: task } = await supabase
-    .from("tasks")
-    .select("*")
-    .eq("day", day)
-    .single();
-
-  const { data: items } = await supabase
-    .from("task_checklist_items")
-    .select("id, title, position")
-    .eq("task_id", task.id)
-    .order("position");
-
-  const { data: marks } = await supabase
-    .from("user_checklist_items")
-    .select("checklist_item_id, done")
-    .eq("user_id", user.id);
-
-  const doneMap = {};
-  (marks || []).forEach(m => doneMap[m.checklist_item_id] = m.done);
-
-  const { data: report } = await supabase
-    .from("daily_reports")
-    .select("can_open_report, submitted_at, photos")
-    .eq("user_id", user.id)
-    .eq("task_id", task.id)
-    .maybeSingle();
-
-  res.json({
+  return res.json({
     ok: true,
-    task,
-    checklist: items.map(i => ({
-      id: i.id,
-      title: i.title,
-      done: doneMap[i.id] || false
-    })),
-    can_open_report: report?.can_open_report === true,
-    already_submitted: !!report?.submitted_at,
-    photo_uploaded: !!report?.photos
+    task: {
+      id: day,
+      title: `Задание дня ${day}`
+    },
+    checklist: [
+      { id: "a", title: "Первый пункт", done: false },
+      { id: "b", title: "Второй пункт", done: false }
+    ],
+    can_open_report: true,
+    already_submitted: false
   });
 });
 
-/* ================= CHECKLIST ================= */
-app.post("/checklist/toggle", requireAuth, async (req, res) => {
+// ===== CHECKLIST TOGGLE =====
+app.post("/checklist/toggle", async (req, res) => {
   const { checklist_id, done } = req.body;
-  const { telegram_id } = req.user;
 
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  await supabase.from("user_checklist_items").upsert(
-    { user_id: user.id, checklist_item_id: checklist_id, done },
-    { onConflict: "user_id,checklist_item_id" }
-  );
-
-  const { data: completed } = await supabase
-    .from("user_checklist_items")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("done", true);
-
-  const completedCount = completed.length;
-
-  const { data: item } = await supabase
-    .from("task_checklist_items")
-    .select("task_id")
-    .eq("id", checklist_id)
-    .single();
-
-  await supabase.from("daily_reports").upsert(
-    {
-      user_id: user.id,
-      task_id: item.task_id,
-      checklist_done_count: completedCount,
-      checklist_completed: completedCount >= 3,
-      can_open_report: completedCount >= 3
-    },
-    { onConflict: "user_id,task_id" }
-  );
-
-  res.json({ ok: true, can_open_report: completedCount >= 3 });
-});
-
-/* ================= PHOTO UPLOAD ================= */
-app.post(
-  "/daily-report/upload-photo",
-  requireAuth,
-  upload.single("photo"),
-  async (req, res) => {
-    const { telegram_id } = req.user;
-    const { task_id } = req.body;
-
-    if (!req.file) {
-      return res.status(400).json({ ok: false });
-    }
-
-    const { data: user } = await supabase
-      .from("users")
-      .select("id")
-      .eq("telegram_id", telegram_id)
-      .single();
-
-    const filePath = `${user.id}/${task_id}/${Date.now()}.jpg`;
-
-    const { error } = await supabase.storage
-      .from("daily-reports")
-      .upload(filePath, req.file.buffer, {
-        contentType: req.file.mimetype,
-        upsert: true
-      });
-
-    if (error) {
-      console.error(error);
-      return res.status(500).json({ ok: false });
-    }
-
-    await supabase
-      .from("daily_reports")
-      .update({ photos: filePath })
-      .eq("user_id", user.id)
-      .eq("task_id", task_id);
-
-    res.json({ ok: true });
-  }
-);
-
-/* ================= SUBMIT REPORT ================= */
-app.post("/daily-report/submit", requireAuth, async (req, res) => {
-  const { report_text, task_id } = req.body;
-  const { telegram_id } = req.user;
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id")
-    .eq("telegram_id", telegram_id)
-    .single();
-
-  await supabase
-    .from("daily_reports")
-    .update({
-      report_text,
-      submitted_at: new Date().toISOString()
-    })
-    .eq("user_id", user.id)
-    .eq("task_id", task_id);
+  console.log("📝 CHECKLIST", checklist_id, done);
 
   res.json({ ok: true });
 });
 
-/* ================= START ================= */
+// ===== DAILY REPORT =====
+app.post("/daily-report/submit", async (req, res) => {
+  const { task_id, report_text, photo_url } = req.body;
+
+  console.log("📨 REPORT", {
+    task_id,
+    report_text,
+    photo_url
+  });
+
+  res.json({ ok: true });
+});
+
+// ===== START SERVER =====
 console.log("🟢 BEFORE LISTEN");
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 SERVER STARTED ON", PORT);
+app.listen(PORT, () => {
+  console.log(`🚀 SERVER STARTED ON ${PORT}`);
 });
