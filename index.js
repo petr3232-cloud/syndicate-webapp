@@ -94,7 +94,6 @@ app.post("/auth", async (req, res) => {
       })
       .select("id")
       .single();
-
     user = insert.data;
   }
 
@@ -111,8 +110,6 @@ app.post("/auth", async (req, res) => {
 app.get("/task/:day", requireAuth, async (req, res) => {
   const day = Number(req.params.day);
   const { telegram_id } = req.user;
-
-  console.log("📅 OPEN DAY:", day);
 
   const { data: user } = await supabase
     .from("users")
@@ -142,6 +139,13 @@ app.get("/task/:day", requireAuth, async (req, res) => {
     doneMap[m.checklist_item_id] = m.done === true;
   });
 
+  const { data: report } = await supabase
+    .from("daily_reports")
+    .select("can_open_report, submitted_at")
+    .eq("user_id", user.id)
+    .eq("task_id", task.id)
+    .maybeSingle();
+
   res.json({
     ok: true,
     task,
@@ -149,7 +153,9 @@ app.get("/task/:day", requireAuth, async (req, res) => {
       id: i.id,
       title: i.title,
       done: doneMap[i.id] || false
-    }))
+    })),
+    can_open_report: report?.can_open_report === true,
+    already_submitted: !!report?.submitted_at
   });
 });
 
@@ -158,8 +164,6 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
   const { checklist_id, done } = req.body;
   const { telegram_id } = req.user;
 
-  console.log("🟡 TOGGLE:", checklist_id, done);
-
   const { data: user } = await supabase
     .from("users")
     .select("id")
@@ -167,50 +171,61 @@ app.post("/checklist/toggle", requireAuth, async (req, res) => {
     .single();
 
   await supabase.from("user_checklist_items").upsert(
-    {
-      user_id: user.id,
-      checklist_item_id: checklist_id,
-      done
-    },
+    { user_id: user.id, checklist_item_id: checklist_id, done },
     { onConflict: "user_id,checklist_item_id" }
   );
 
-  /* === СЧИТАЕМ ВЫПОЛНЕННЫЕ (ВАЖНО: count!) === */
-  const { count } = await supabase
+  const { data: completed } = await supabase
     .from("user_checklist_items")
-    .select("*", { count: "exact", head: true })
+    .select("id")
     .eq("user_id", user.id)
     .eq("done", true);
 
-  const completedCount = count || 0;
-  console.log("📊 COMPLETED COUNT:", completedCount);
+  const completedCount = completed.length;
 
-  /* === ПОЛУЧАЕМ task_id === */
   const { data: item } = await supabase
     .from("task_checklist_items")
     .select("task_id")
     .eq("id", checklist_id)
     .single();
 
-  /* === DAILY REPORT === */
   await supabase.from("daily_reports").upsert(
     {
       user_id: user.id,
       task_id: item.task_id,
       checklist_done_count: completedCount,
+      checklist_completed: completedCount >= 3,
       can_open_report: completedCount >= 3
     },
     { onConflict: "user_id,task_id" }
   );
 
-  if (completedCount >= 3) {
-    console.log("📝 DAILY REPORT AVAILABLE");
-  }
+  res.json({ ok: true, can_open_report: completedCount >= 3 });
+});
 
-  res.json({
-    ok: true,
-    can_open_report: completedCount >= 3
-  });
+/* ================= DAILY REPORT SUBMIT ================= */
+app.post("/daily-report/submit", requireAuth, async (req, res) => {
+  const { report_text, photo_url, task_id } = req.body;
+  const { telegram_id } = req.user;
+
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", telegram_id)
+    .single();
+
+  await supabase
+    .from("daily_reports")
+    .update({
+      report_text,
+      photo_url,
+      submitted_at: new Date().toISOString()
+    })
+    .eq("user_id", user.id)
+    .eq("task_id", task_id);
+
+  console.log("📨 DAILY REPORT SUBMITTED");
+  res.json({ ok: true });
 });
 
 /* ================= START ================= */
