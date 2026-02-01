@@ -2,9 +2,16 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+/* ===== SUPABASE ===== */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 /* ===== middleware ===== */
 app.use(express.json());
@@ -12,73 +19,91 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ===== multer ===== */
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads");
-}
+if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
 
 const storage = multer.diskStorage({
   destination: "uploads/",
-  filename: (_, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  }
+  filename: (_, file, cb) =>
+    cb(null, Date.now() + "-" + file.originalname)
 });
 const upload = multer({ storage });
 
-console.log("🟢 BOOT: starting app");
-
 /* ===== routes ===== */
-app.get("/health", (req, res) => {
-  res.status(200).json({ ok: true });
+
+app.get("/health", (_, res) => {
+  res.json({ ok: true });
 });
 
-app.post("/auth", (req, res) => {
-  res.json({ token: "dev-token" });
+/* ===== GET TASK + CHECKLIST FROM SUPABASE ===== */
+app.get("/task/:day", async (req, res) => {
+  const day = Number(req.params.day);
+
+  try {
+    const { data: task, error: taskError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("day", day)
+      .single();
+
+    if (taskError) throw taskError;
+
+    const { data: checklist, error: checklistError } = await supabase
+      .from("checklist_items")
+      .select("*")
+      .eq("task_id", task.id)
+      .order("id");
+
+    if (checklistError) throw checklistError;
+
+    res.json({
+      ok: true,
+      task,
+      checklist,
+      can_open_report: true,
+      already_submitted: false
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
-app.get("/task/:day", (req, res) => {
-  res.json({
-    ok: true,
-    task: {
-      id: Number(req.params.day),
-      title: `Задание дня ${req.params.day}`,
-      description: `Описание задания для дня ${req.params.day}`
-    },
-    checklist: [
-      { id: "1", title: "Сделать шаг 1", done: false },
-      { id: "2", title: "Сделать шаг 2", done: false }
-    ],
-    can_open_report: true,
-    already_submitted: false
-  });
-});
+/* ===== checklist toggle ===== */
+app.post("/checklist/toggle", async (req, res) => {
+  const { id, done } = req.body;
 
-app.post("/checklist/toggle", (req, res) => {
+  await supabase
+    .from("checklist_items")
+    .update({ done })
+    .eq("id", id);
+
   res.json({ ok: true });
 });
 
 /* ===== upload photo ===== */
-app.post("/daily-report/upload-photo", upload.single("photo"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ ok: false });
+app.post(
+  "/daily-report/upload-photo",
+  upload.single("photo"),
+  (req, res) => {
+    res.json({
+      ok: true,
+      photos: [`/uploads/${req.file.filename}`]
+    });
   }
+);
 
-  res.json({
-    ok: true,
-    photos: [`/uploads/${req.file.filename}`]
-  });
-});
-
-app.post("/daily-report/submit", (req, res) => {
-  console.log("📩 REPORT:", req.body);
+/* ===== submit report ===== */
+app.post("/daily-report/submit", async (req, res) => {
+  await supabase.from("daily_reports").insert(req.body);
   res.json({ ok: true });
 });
 
 /* ===== frontend fallback ===== */
-app.get("*", (req, res) => {
+app.get("*", (_, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 /* ===== start ===== */
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, () => {
   console.log("🚀 SERVER STARTED ON", PORT);
 });
