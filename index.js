@@ -24,60 +24,53 @@ if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
 const storage = multer.diskStorage({
   destination: "uploads/",
   filename: (_, file, cb) =>
-    cb(null, Date.now() + "-" + file.originalname)
+    cb(null, Date.now() + "-" + file.originalname),
 });
 const upload = multer({ storage });
 
-/* ===== routes ===== */
+console.log("🟢 BOOT: starting app");
 
+/* ===== health ===== */
 app.get("/health", (_, res) => {
   res.json({ ok: true });
 });
 
-/* ===== GET TASK + CHECKLIST FROM SUPABASE ===== */
+/* ===== task by day (REAL DATA) ===== */
 app.get("/task/:day", async (req, res) => {
-  const day = Number(req.params.day);
-
   try {
+    const day = Number(req.params.day);
+
     const { data: task, error: taskError } = await supabase
       .from("tasks")
       .select("*")
       .eq("day", day)
       .single();
 
-    if (taskError) throw taskError;
+    if (taskError || !task) {
+      return res.json({ ok: false, message: "Task not found" });
+    }
 
-    const { data: checklist, error: checklistError } = await supabase
+    const { data: checklist } = await supabase
       .from("checklist_items")
       .select("*")
       .eq("task_id", task.id)
-      .order("id");
-
-    if (checklistError) throw checklistError;
+      .order("order");
 
     res.json({
       ok: true,
-      task,
-      checklist,
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+      },
+      checklist: checklist || [],
       can_open_report: true,
-      already_submitted: false
+      already_submitted: false,
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: e.message });
+    console.error("❌ /task error", e);
+    res.status(500).json({ ok: false });
   }
-});
-
-/* ===== checklist toggle ===== */
-app.post("/checklist/toggle", async (req, res) => {
-  const { id, done } = req.body;
-
-  await supabase
-    .from("checklist_items")
-    .update({ done })
-    .eq("id", id);
-
-  res.json({ ok: true });
 });
 
 /* ===== upload photo ===== */
@@ -87,15 +80,27 @@ app.post(
   (req, res) => {
     res.json({
       ok: true,
-      photos: [`/uploads/${req.file.filename}`]
+      photos: [`/uploads/${req.file.filename}`],
     });
   }
 );
 
 /* ===== submit report ===== */
 app.post("/daily-report/submit", async (req, res) => {
-  await supabase.from("daily_reports").insert(req.body);
-  res.json({ ok: true });
+  try {
+    const { task_id, text } = req.body;
+
+    const { data: report } = await supabase
+      .from("daily_reports")
+      .insert({ task_id, text })
+      .select()
+      .single();
+
+    res.json({ ok: true, report });
+  } catch (e) {
+    console.error("❌ submit report", e);
+    res.status(500).json({ ok: false });
+  }
 });
 
 /* ===== frontend fallback ===== */
